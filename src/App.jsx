@@ -314,6 +314,29 @@ export default function App() {
     )));
   };
 
+  const buildPromptForCollectionRequest = (request) => {
+    if (!request) return '';
+    if (request.tabbitPrompt?.trim()) return request.tabbitPrompt;
+
+    const requestShop = platforms.find(platform => (
+      platform.id === request.shopId
+      || platform.id === request.platformId
+      || platform.name === request.platformName
+    )) || activePlatformData;
+    const requestRules = Array.isArray(request.rules) && request.rules.length > 0
+      ? request.rules
+      : extractionTasks.filter(task => task.status === 'ready');
+
+    if (!requestShop || requestRules.length === 0) return '';
+    return buildTabbitBatchPrompt({ shop: requestShop, rules: requestRules });
+  };
+
+  const copyPendingCollectionPrompt = () => {
+    const prompt = buildPromptForCollectionRequest(pendingCollectionRequest);
+    if (!prompt) return;
+    handleCopy('task', prompt);
+  };
+
   const createCollectionRequest = ({ fieldNames } = {}) => {
     if (activePlatformData?.authStatus !== 'verified') {
       return { ok: false, error: 'platform_not_verified', activePlatformName };
@@ -926,7 +949,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100">
                       <RefreshCw size={12} className="animate-spin" /> 待本地执行器处理: {pendingCollectionRequest.id}
                       <button
-                        onClick={() => handleCopy('task', pendingCollectionRequest.tabbitPrompt || '')}
+                        onClick={copyPendingCollectionPrompt}
                         className="ml-1 text-[#2954FF] hover:underline"
                       >
                         {copiedStates.task ? '已复制' : '复制指令'}
@@ -1347,6 +1370,17 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       >
                         <RefreshCw size={13} /> 校准店铺
                       </button>
+                      {pendingCollectionRequest && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-[#2954FF] border border-blue-100 rounded text-[12px] font-medium">
+                          <RefreshCw size={12} className="animate-spin" /> 待处理: {pendingCollectionRequest.id}
+                          <button onClick={copyPendingCollectionPrompt} className="hover:underline">
+                            {copiedStates.task ? '已复制' : '复制指令'}
+                          </button>
+                          <button onClick={cancelPendingCollectionRequest} className="text-[#86909C] hover:text-red-500">
+                            取消
+                          </button>
+                        </div>
+                      )}
                       <button
                         onClick={handleRunTabbitCollection}
                         disabled={!canRunCollection}
