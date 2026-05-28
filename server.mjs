@@ -1,0 +1,154 @@
+import http from 'node:http';
+import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  createCollectionRun,
+  createInitialDataFactoryState,
+  getShopRules,
+  normalizeDataFactoryState,
+  writeCollectionRecord
+} from './src/dataFactoryModel.js';
+
+const port = Number(process.env.DATA_FACTORY_PORT || 5180);
+const stateFile = join(process.cwd(), 'data-factory-state.json');
+
+const jsonHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json; charset=utf-8'
+};
+
+const nowText = () => new Date().toLocaleTimeString('zh-CN', {
+  hour12: false,
+  timeZone: 'Asia/Shanghai'
+});
+
+const readJsonBody = async (request) => {
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  if (chunks.length === 0) return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+};
+
+const readStateEnvelope = async () => {
+  if (!existsSync(stateFile)) return { ok: true, state: createInitialDataFactoryState(), updatedAt: 0 };
+  const envelope = JSON.parse(await readFile(stateFile, 'utf8'));
+  return {
+    ok: true,
+    state: normalizeDataFactoryState(envelope.state || envelope),
+    updatedAt: envelope.updatedAt || 0
+  };
+};
+
+const writeStateEnvelope = async (state) => {
+  const envelope = { ok: true, state: normalizeDataFactoryState(state), updatedAt: Date.now() };
+  await writeFile(stateFile, `${JSON.stringify(envelope, null, 2)}\n`);
+  return envelope;
+};
+
+const send = (response, statusCode, payload) => {
+  response.writeHead(statusCode, jsonHeaders);
+  response.end(JSON.stringify(payload));
+};
+
+const writeRecord = async (payload) => {
+  const envelope = await readStateEnvelope();
+  const result = writeCollectionRecord(envelope.state, payload);
+  if (!result.ok) return result;
+  const nextEnvelope = await writeStateEnvelope(result.state);
+  return { ok: true, record: result.record, updatedAt: nextEnvelope.updatedAt };
+};
+
+const server = http.createServer(async (request, response) => {
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204, jsonHeaders);
+    response.end();
+    return;
+  }
+
+  try {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+
+    if (request.method === 'GET' && url.pathname === '/health') {
+      send(response, 200, { ok: true, service: 'data-factory-api' });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/state') {
+      send(response, 200, await readStateEnvelope());
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/shops') {
+      const envelope = await readStateEnvelope();
+      send(response, 200, { ok: true, shops: envelope.state.platforms });
+      return;
+    }
+
+    const rulesMatch = url.pathname.match(/^\/shops\/([^/]+)\/rules$/);
+    if (request.method === 'GET' && rulesMatch) {
+      const envelope = await readStateEnvelope();
+      const shopId = decodeURIComponent(rulesMatch[1]);
+      send(response, 200, { ok: true, shopId, rules: getShopRules(envelope.state, shopId) });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/records') {
+      const envelope = await readStateEnvelope();
+      const shopId = url.searchParams.get('shopId');
+      const shopName = url.searchParams.get('shopName');
+      const records = envelope.state.historyRecords.filter(record => (
+        (!shopId || record.shopId === shopId) && (!shopName || record.platform === shopName)
+      ));
+      send(response, 200, { ok: true, records });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/collection-runs') {
+      const envelope = await readStateEnvelope();
+      send(response, 200, { ok: true, runs: envelope.state.collectionRequests || [] });
+      return;
+    }
+
+    if (request.method === 'PUT' && url.pathname === '/state') {
+      const body = await readJsonBody(request);
+      send(response, 200, await writeStateEnvelope(body.state || body));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/collection-runs') {
+      const body = await readJsonBody(request);
+      const envelope = await readStateEnvelope();
+      const result = createCollectionRun(envelope.state, body);
+      if (!result.ok) {
+        send(response, 400, result);
+        return;
+      }
+      const nextEnvelope = await writeStateEnvelope(result.state);
+      send(response, 200, { ok: true, run: result.run, updatedAt: nextEnvelope.updatedAt });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/write-record') {
+      const result = await writeRecord(await readJsonBody(request));
+      send(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/collection-records') {
+      const result = await writeRecord(await readJsonBody(request));
+      send(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    send(response, 404, { ok: false, error: 'not_found' });
+  } catch (error) {
+    send(response, 500, { ok: false, error: error.message });
+  }
+});
+
+server.listen(port, '127.0.0.1', () => {
+  console.log(`DataFactory API listening on http://127.0.0.1:${port}`);
+});
