@@ -8,7 +8,7 @@ export const INITIAL_PLATFORMS = [
     platformType: 'taobao',
     name: '淘宝店铺A (核心)',
     expectedShopName: '南苏科技',
-    url: 'https://myseller.taobao.com/home.htm/trade-platform/tp/sold',
+    url: 'https://myseller.taobao.com/home.htm/QnworkbenchHome/',
     authStatus: 'verified',
     detectedName: '南苏科技'
   },
@@ -52,14 +52,14 @@ const buildStoreMetricRule = ({ id, fieldName, value, valueType = '数字文本'
 
 export const INITIAL_TASK_RULES_BY_PLATFORM = {
   taobao: [
-    buildStoreMetricRule({ id: 'taobao-pay-amount', fieldName: '支付金额', value: '0' }),
-    buildStoreMetricRule({ id: 'taobao-visitors', fieldName: '访客数', value: '5' }),
-    buildStoreMetricRule({ id: 'taobao-paid-suborders', fieldName: '支付子订单数', value: '0' }),
-    buildStoreMetricRule({ id: 'taobao-pay-conversion', fieldName: '支付转化率', value: '0%', valueType: '百分比文本' }),
-    buildStoreMetricRule({ id: 'taobao-pageviews', fieldName: '浏览量', value: '11' }),
+    buildStoreMetricRule({ id: 'taobao-pay-amount', fieldName: '支付金额', value: '4,160' }),
+    buildStoreMetricRule({ id: 'taobao-visitors', fieldName: '访客数', value: '116' }),
+    buildStoreMetricRule({ id: 'taobao-paid-suborders', fieldName: '支付子订单数', value: '11' }),
+    buildStoreMetricRule({ id: 'taobao-pay-conversion', fieldName: '支付转化率', value: '7.76%', valueType: '百分比文本' }),
+    buildStoreMetricRule({ id: 'taobao-pageviews', fieldName: '浏览量', value: '283' }),
     buildStoreMetricRule({ id: 'taobao-cart-users', fieldName: '加购人数', value: '0' }),
-    buildStoreMetricRule({ id: 'taobao-average-order', fieldName: '客单价', value: '0' }),
-    buildStoreMetricRule({ id: 'taobao-paid-buyers', fieldName: '支付买家数', value: '0' })
+    buildStoreMetricRule({ id: 'taobao-average-order', fieldName: '客单价', value: '462.22' }),
+    buildStoreMetricRule({ id: 'taobao-paid-buyers', fieldName: '支付买家数', value: '9' })
   ],
   pdd: [
     { id: 'pdd-1', workspaceId: DEFAULT_WORKSPACE_ID, shopId: 'pdd', fieldName: '今日支付金额', value: '￥ 12,450.00', prompt: '', pagePath: '待配置拼多多后台路径', clickPath: '', screenshot: null, markerNote: '', recognizedPath: '', confidence: null, status: 'draft' },
@@ -79,23 +79,23 @@ export const INITIAL_TASK_RULES_BY_PLATFORM = {
 
 export const INITIAL_HISTORY_RECORDS = [
   {
-    id: 'REC-STORE-085715',
+    id: 'REC-STORE-233828',
     workspaceId: DEFAULT_WORKSPACE_ID,
     shopId: 'taobao',
-    time: '08:57:15',
+    time: '23:38:28',
     platform: '淘宝店铺A (核心)',
     status: 'success',
     source: 'tabbit-store-data-seed',
-    evidence: '千牛商家工作台首页「店铺数据」区域，数据更新时间 2026-05-25 08:57:15。',
+    evidence: '千牛商家工作台首页「店铺数据」区域，数据更新时间 2026-05-28 23:38:28。',
     data: {
-      支付金额: '0',
-      访客数: '5',
-      支付子订单数: '0',
-      支付转化率: '0%',
-      浏览量: '11',
+      支付金额: '4,160',
+      访客数: '116',
+      支付子订单数: '11',
+      支付转化率: '7.76%',
+      浏览量: '283',
       加购人数: '0',
-      客单价: '0',
-      支付买家数: '0'
+      客单价: '462.22',
+      支付买家数: '9'
     }
   },
   { id: 'REC-1003', workspaceId: DEFAULT_WORKSPACE_ID, shopId: 'pdd', time: '10:00:00', platform: '拼多多专卖店', status: 'success', data: { 今日支付金额: '￥ 12,450.00', 实时访客数: '1,205', 支付转化率: '8.2%', 客单价: '￥ 10.33', 退款率: '5.4%' } },
@@ -164,6 +164,31 @@ export const getReadyRules = (state, shopId, fieldNames) => {
   ));
 };
 
+export const buildTabbitBatchPrompt = ({ shop, rules }) => {
+  const fieldLines = rules.map((rule, index) => (
+    `${index + 1}. ${rule.fieldName} | 页面位置: ${rule.pagePath || '未填写'} | 操作路径: ${rule.clickPath || '未填写'} | 目标定位: ${rule.recognizedPath || rule.markerNote || '读取当前主数值'}`
+  )).join('\n');
+
+  const expectedShopName = shop.expectedShopName || shop.detectedName || shop.name;
+  const targetUrl = shop.url || 'https://myseller.taobao.com/home.htm/QnworkbenchHome/';
+
+  return [
+    '你是 DataFactory 的本地采集执行器。请使用当前 Tabbit 浏览器完成一次批量采集，只做读取，不做提交、删除、付款、发布、改价、授权等写操作。',
+    '',
+    `目标店铺: ${expectedShopName}`,
+    `目标页面: ${targetUrl}`,
+    '',
+    '执行步骤:',
+    `1. 打开目标页面。如果当前不在千牛商家工作台首页，请进入 ${targetUrl}。`,
+    `2. 先校准店铺名: 页面右上角/店铺信息处必须是「${expectedShopName}」。如果当前店铺不是它，先尝试切换/寻找「${expectedShopName}」；找不到就停止并返回 blocked，不要采集。`,
+    '3. 在「店铺数据」区域一次性读取下面所有字段，只读取每张卡片里的当前主数值，不读取昨日值；不要猜测，不确定就标 error。',
+    fieldLines,
+    '',
+    '只返回 JSON，不要解释，不要 Markdown:',
+    '{"shopCalibration":{"expectedShopName":"' + expectedShopName + '","detectedShopName":"","status":"verified|mismatch|blocked"},"fields":[{"fieldName":"","value":"","status":"success|error","evidence":"","confidence":0}],"blockers":[],"dataUpdatedAt":""}'
+  ].join('\n');
+};
+
 export const createCollectionRun = (state, { shopId, fieldNames } = {}) => {
   const normalized = normalizeDataFactoryState(state);
   const shop = findShop(normalized, shopId || normalized.activePlatform);
@@ -186,7 +211,8 @@ export const createCollectionRun = (state, { shopId, fieldNames } = {}) => {
     detectedName: shop.detectedName,
     status: 'waiting_for_codex',
     rules,
-    instruction: 'Codex 读取 rules 后调用 Tabbit Bridge MCP 执行采集，并通过 DataFactory API/MCP 写回记录。'
+    instruction: 'Codex 读取 tabbitPrompt 后调用 Tabbit Bridge MCP 执行采集，并通过 DataFactory API/MCP 写回记录。',
+    tabbitPrompt: buildTabbitBatchPrompt({ shop, rules })
   };
 
   return {

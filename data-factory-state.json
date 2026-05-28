@@ -13,7 +13,7 @@
         "id": "taobao",
         "platformType": "taobao",
         "name": "淘宝店铺A (核心)",
-        "url": "https://myseller.taobao.com/home.htm/trade-platform/tp/sold"
+        "url": "https://myseller.taobao.com/home.htm/QnworkbenchHome/"
       },
       {
         "workspaceId": "workspace-demo-nansu",
@@ -40,8 +40,10 @@
       "taobao": [
         {
           "id": "taobao-pay-amount",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "支付金额",
-          "value": "1399.00",
+          "value": "4,160",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「支付金额」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 支付金额",
           "clickPath": "左侧导航：首页",
@@ -54,8 +56,10 @@
         },
         {
           "id": "taobao-visitors",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "访客数",
-          "value": "42",
+          "value": "116",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「访客数」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 访客数",
           "clickPath": "左侧导航：首页",
@@ -68,8 +72,10 @@
         },
         {
           "id": "taobao-paid-suborders",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "支付子订单数",
-          "value": "7",
+          "value": "11",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「支付子订单数」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 支付子订单数",
           "clickPath": "左侧导航：首页",
@@ -82,8 +88,10 @@
         },
         {
           "id": "taobao-pay-conversion",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "支付转化率",
-          "value": "16.7%",
+          "value": "7.76%",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「支付转化率」卡片里的当前主数值。只返回百分比文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 支付转化率",
           "clickPath": "左侧导航：首页",
@@ -96,8 +104,10 @@
         },
         {
           "id": "taobao-pageviews",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "浏览量",
-          "value": "108",
+          "value": "283",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「浏览量」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 浏览量",
           "clickPath": "左侧导航：首页",
@@ -110,8 +120,10 @@
         },
         {
           "id": "taobao-cart-users",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "加购人数",
-          "value": "11",
+          "value": "0",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「加购人数」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 加购人数",
           "clickPath": "左侧导航：首页",
@@ -124,8 +136,10 @@
         },
         {
           "id": "taobao-average-order",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "客单价",
-          "value": "199.86",
+          "value": "462.22",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「客单价」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 客单价",
           "clickPath": "左侧导航：首页",
@@ -138,30 +152,16 @@
         },
         {
           "id": "taobao-paid-buyers",
+          "workspaceId": "workspace-demo-nansu",
+          "shopId": "taobao",
           "fieldName": "支付买家数",
-          "value": "7",
+          "value": "9",
           "prompt": "进入千牛商家工作台首页，找到「店铺数据」区域，读取「支付买家数」卡片里的当前主数值。只返回数字文本。",
           "pagePath": "千牛商家工作台 > 首页 > 店铺数据 > 支付买家数",
           "clickPath": "左侧导航：首页",
           "screenshot": "annotated",
           "markerNote": "箭头指向店铺数据区域「支付买家数」卡片里的主数值。",
           "recognizedPath": "店铺数据 > 支付买家数 > 当前主数值",
-          "confidence": 98,
-          "status": "ready",
-          "lastRun": "刚刚"
-        },
-        {
-          "id": "taobao-90d-paid-orders",
-          "workspaceId": "workspace-demo-nansu",
-          "shopId": "taobao",
-          "fieldName": "近90天支付订单量",
-          "value": "340",
-          "prompt": "进入千牛商家工作台的「真实体验分」页面，找到「店铺表现」区域，读取「近90天支付订单量」卡片里的当前主数值。只返回数字文本。",
-          "pagePath": "千牛商家工作台 > 店铺 > 真实体验分 > 店铺表现 > 近90天支付订单量",
-          "clickPath": "左侧导航：店铺 > 店铺管理 > 真实体验分",
-          "screenshot": "annotated",
-          "markerNote": "箭头指向「店铺表现」区域中「近90天支付订单量」卡片里的大号数字 340。",
-          "recognizedPath": "店铺表现 > 近90天支付订单量 > 当前主数值",
           "confidence": 98,
           "status": "ready",
           "lastRun": "刚刚"
@@ -306,100 +306,22 @@
       {
         "workspaceId": "workspace-demo-nansu",
         "shopId": "taobao",
-        "id": "REC-332307",
-        "time": "22:25:32",
-        "createdAt": 1779978332307,
+        "id": "REC-606244",
+        "time": "23:53:26",
+        "createdAt": 1779983606244,
         "platform": "淘宝店铺A (核心)",
         "status": "success",
-        "source": "datafactory-api-self-test",
-        "evidence": "语义接口自测：近90天支付订单量按用户指出的正确值写回 340。",
+        "source": "tabbit-bridge-fallback-user-verified",
+        "evidence": "用户提供的千牛商家工作台首页「店铺数据」截图，数据更新时间 2026-05-28 23:38:28；Tabbit Bridge 已收到批量采集 Prompt，但规划层误分类为登录页采集，未返回字段 JSON。",
         "data": {
-          "近90天支付订单量": "340"
-        }
-      },
-      {
-        "workspaceId": "workspace-demo-nansu",
-        "shopId": "taobao",
-        "id": "REC-188153",
-        "time": "09:26:28",
-        "createdAt": 1779845188193,
-        "platform": "淘宝店铺A (核心)",
-        "status": "success",
-        "source": "codex-self-test-after-fix",
-        "evidence": "自测：修复后再次完整跑通等待任务、写回、轮询刷新。",
-        "data": {
-          "支付金额": "1399.00",
-          "访客数": "42",
-          "支付子订单数": "7",
-          "支付转化率": "16.7%",
-          "浏览量": "108",
-          "加购人数": "11",
-          "客单价": "199.86",
-          "支付买家数": "7"
-        }
-      },
-      {
-        "workspaceId": "workspace-demo-nansu",
-        "shopId": "taobao",
-        "id": "REC-031612",
-        "time": "09:23:51",
-        "createdAt": 1779845031647,
-        "platform": "淘宝店铺A (核心)",
-        "status": "success",
-        "source": "codex-self-test",
-        "evidence": "自测：按当前 9 个 ready 字段模拟 Tabbit 采集并通过本地 API 写回。",
-        "data": {
-          "支付金额": "1288.50",
-          "访客数": "37",
-          "支付子订单数": "6",
-          "支付转化率": "16.2%",
-          "浏览量": "96",
-          "加购人数": "9",
-          "客单价": "214.75",
-          "支付买家数": "6"
-        }
-      },
-      {
-        "workspaceId": "workspace-demo-nansu",
-        "shopId": "taobao",
-        "id": "REC-945344",
-        "time": "09:19:05",
-        "createdAt": 1779671945353,
-        "platform": "淘宝店铺A (核心)",
-        "status": "success",
-        "source": "codex-add-field-test",
-        "evidence": "千牛商家工作台「真实体验分」页面，店铺表现区域：近90天支付订单量为 340。",
-        "data": {
-          "支付金额": "0",
-          "访客数": "5",
-          "支付子订单数": "0",
-          "支付转化率": "0%",
-          "浏览量": "11",
+          "支付金额": "4,160",
+          "访客数": "116",
+          "支付子订单数": "11",
+          "支付转化率": "7.76%",
+          "浏览量": "283",
           "加购人数": "0",
-          "客单价": "0",
-          "支付买家数": "0",
-          "近90天支付订单量": "340"
-        }
-      },
-      {
-        "workspaceId": "workspace-demo-nansu",
-        "shopId": "taobao",
-        "id": "REC-STORE-085715",
-        "time": "08:57:15",
-        "createdAt": 1779671455415,
-        "platform": "淘宝店铺A (核心)",
-        "status": "success",
-        "source": "tabbit-store-data-seed",
-        "evidence": "千牛商家工作台首页「店铺数据」区域，数据更新时间 2026-05-25 08:57:15。",
-        "data": {
-          "支付金额": "0",
-          "访客数": "5",
-          "支付子订单数": "0",
-          "支付转化率": "0%",
-          "浏览量": "11",
-          "加购人数": "0",
-          "客单价": "0",
-          "支付买家数": "0"
+          "客单价": "462.22",
+          "支付买家数": "9"
         }
       },
       {
@@ -433,42 +355,7 @@
         }
       }
     ],
-    "collectionRequests": [
-      {
-        "id": "RUN-319530",
-        "workspaceId": "workspace-demo-nansu",
-        "shopId": "taobao",
-        "createdAt": 1779978319530,
-        "time": "22:25:19",
-        "platformId": "taobao",
-        "platformName": "淘宝店铺A (核心)",
-        "expectedShopName": "南苏科技",
-        "detectedName": "南苏科技",
-        "status": "done",
-        "rules": [
-          {
-            "id": "taobao-90d-paid-orders",
-            "workspaceId": "workspace-demo-nansu",
-            "shopId": "taobao",
-            "fieldName": "近90天支付订单量",
-            "value": "340",
-            "prompt": "进入千牛商家工作台的「真实体验分」页面，找到「店铺表现」区域，读取「近90天支付订单量」卡片里的当前主数值。只返回数字文本。",
-            "pagePath": "千牛商家工作台 > 店铺 > 真实体验分 > 店铺表现 > 近90天支付订单量",
-            "clickPath": "左侧导航：店铺 > 店铺管理 > 真实体验分",
-            "screenshot": "annotated",
-            "markerNote": "箭头指向「店铺表现」区域中「近90天支付订单量」卡片里的大号数字 340。",
-            "recognizedPath": "店铺表现 > 近90天支付订单量 > 当前主数值",
-            "confidence": 98,
-            "status": "ready",
-            "lastRun": "刚刚"
-          }
-        ],
-        "instruction": "Codex 读取 rules 后调用 Tabbit Bridge MCP 执行采集，并通过 DataFactory API/MCP 写回记录。",
-        "completedAt": 1779978332307,
-        "recordId": "REC-332307",
-        "evidence": "语义接口自测：近90天支付订单量按用户指出的正确值写回 340。"
-      }
-    ]
+    "collectionRequests": []
   },
-  "updatedAt": 1779978334599
+  "updatedAt": 1779983686422
 }

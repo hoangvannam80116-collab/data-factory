@@ -43,11 +43,12 @@ import {
   INITIAL_HISTORY_RECORDS,
   INITIAL_PLATFORMS,
   INITIAL_TASK_RULES_BY_PLATFORM,
+  buildTabbitBatchPrompt,
   normalizeDataFactoryState
 } from './dataFactoryModel.js';
 
 export default function App() {
-  const storageKey = 'data-factory-mvp-state-v1';
+  const storageKey = 'data-factory-mvp-state-v2';
   const apiBase = 'http://127.0.0.1:5180';
   const [workspaceId] = useState(DEFAULT_WORKSPACE_ID);
   const [userId] = useState(DEFAULT_USER_ID);
@@ -316,7 +317,8 @@ export default function App() {
       detectedName: activePlatformData.detectedName,
       status: 'waiting_for_codex',
       rules,
-      instruction: 'Codex 读取 rules 后调用 Tabbit MCP 执行采集，并通过 writeRecord 或 writeFieldResult 写回 DataFactory。'
+      instruction: 'Codex 读取 tabbitPrompt 后调用 Tabbit MCP 执行采集，并通过 writeRecord 或 writeFieldResult 写回 DataFactory。',
+      tabbitPrompt: buildTabbitBatchPrompt({ shop: activePlatformData, rules })
     };
 
     setCollectionRequests(requests => [request, ...requests]);
