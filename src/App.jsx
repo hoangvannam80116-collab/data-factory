@@ -802,8 +802,62 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
     setDraggedColIdx(null);
   };
 
+  const pendingCollectionPrompt = buildPromptForCollectionRequest(pendingCollectionRequest);
+  const agentBridgePayload = {
+    workspaceId,
+    userId,
+    activePlatform,
+    activePlatformName,
+    shop: activePlatformData ? {
+      id: activePlatformData.id,
+      name: activePlatformData.name,
+      platformType: activePlatformData.platformType,
+      expectedShopName: activePlatformData.expectedShopName,
+      detectedName: activePlatformData.detectedName,
+      authStatus: activePlatformData.authStatus,
+      url: activePlatformData.url,
+      allowedDomains: activePlatformData.allowedDomains
+    } : null,
+    readyRules: extractionTasks
+      .filter(task => task.status === 'ready')
+      .map(task => ({
+        id: task.id,
+        fieldName: task.fieldName,
+        prompt: task.prompt,
+        pagePath: task.pagePath,
+        clickPath: task.clickPath,
+        recognizedPath: task.recognizedPath,
+        markerNote: task.markerNote,
+        value: task.value,
+        status: task.status
+      })),
+    pendingCollectionRequest: pendingCollectionRequest ? {
+      id: pendingCollectionRequest.id,
+      status: pendingCollectionRequest.status,
+      createdAt: pendingCollectionRequest.createdAt,
+      platformName: pendingCollectionRequest.platformName,
+      expectedShopName: pendingCollectionRequest.expectedShopName,
+      detectedName: pendingCollectionRequest.detectedName,
+      tabbitPrompt: pendingCollectionPrompt
+    } : null,
+    latestRecord: latestRecord ? {
+      id: latestRecord.id,
+      time: latestRecord.time,
+      status: latestRecord.status,
+      data: latestRecord.data
+    } : null
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#F2F3F5] font-sans text-[#1D2129] overflow-hidden relative">
+      <textarea
+        id="data-factory-agent-state"
+        readOnly
+        aria-hidden="true"
+        tabIndex={-1}
+        value={JSON.stringify(agentBridgePayload)}
+        className="fixed left-[-9999px] top-0 h-px w-px opacity-0 pointer-events-none"
+      />
       <style>{`
         .customized-scrollbar::-webkit-scrollbar { width: 12px; height: 12px; }
         .customized-scrollbar::-webkit-scrollbar-track { background: #FAFAFA; border-top: 1px solid #E5E6EB; border-left: 1px solid #E5E6EB; }
