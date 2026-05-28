@@ -1,6 +1,56 @@
 export const DEFAULT_WORKSPACE_ID = 'workspace-demo-nansu';
 export const DEFAULT_USER_ID = 'user-demo-nansu';
 
+export const PLATFORM_IDENTITY_DEFAULTS = {
+  taobao: {
+    label: '淘宝 / 千牛',
+    url: 'https://myseller.taobao.com/home.htm/QnworkbenchHome/',
+    allowedDomains: ['myseller.taobao.com', 'sycm.taobao.com', 'qn.taobao.com']
+  },
+  pdd: {
+    label: '拼多多',
+    url: 'https://mms.pinduoduo.com/',
+    allowedDomains: ['mms.pinduoduo.com']
+  },
+  jd: {
+    label: '京东',
+    url: 'https://shop.jd.com/',
+    allowedDomains: ['shop.jd.com', 'passport.shop.jd.com']
+  },
+  other: {
+    label: '其他平台',
+    url: 'https://',
+    allowedDomains: []
+  }
+};
+
+export const normalizeAllowedDomains = (domains = []) => (
+  Array.isArray(domains) ? domains : String(domains).split(/[\s,，\n]+/)
+).map(domain => domain.trim().toLowerCase()).filter(Boolean);
+
+export const extractHostname = (url) => {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+};
+
+export const inferAllowedDomains = ({ platformType = 'other', url = '' } = {}) => {
+  const defaults = PLATFORM_IDENTITY_DEFAULTS[platformType]?.allowedDomains || [];
+  const hostname = extractHostname(url);
+  return Array.from(new Set(normalizeAllowedDomains([...defaults, hostname])));
+};
+
+export const isUrlAllowedForShop = (shop, currentUrl = '') => {
+  if (!currentUrl) return true;
+  const hostname = extractHostname(currentUrl);
+  if (!hostname) return false;
+  const allowedDomains = normalizeAllowedDomains(shop.allowedDomains);
+  if (allowedDomains.length === 0) return true;
+  return allowedDomains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
+};
+
 export const INITIAL_PLATFORMS = [
   {
     id: 'taobao',
@@ -9,6 +59,7 @@ export const INITIAL_PLATFORMS = [
     name: '淘宝店铺A (核心)',
     expectedShopName: '南苏科技',
     url: 'https://myseller.taobao.com/home.htm/QnworkbenchHome/',
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
     authStatus: 'verified',
     detectedName: '南苏科技'
   },
@@ -18,7 +69,8 @@ export const INITIAL_PLATFORMS = [
     platformType: 'pdd',
     name: '拼多多专卖店',
     expectedShopName: '',
-    url: 'https://mms.pinduoduo.com/login/',
+    url: 'https://mms.pinduoduo.com/',
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
     authStatus: 'unauthorized',
     detectedName: ''
   },
@@ -29,6 +81,7 @@ export const INITIAL_PLATFORMS = [
     name: '京东旗舰店',
     expectedShopName: '',
     url: 'https://shop.jd.com/home',
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
     authStatus: 'unauthorized',
     detectedName: ''
   }
@@ -132,7 +185,12 @@ export const normalizeDataFactoryState = (state = {}) => {
       authStatus: 'unauthorized',
       detectedName: '',
       expectedShopName: '',
-      ...platform
+      ...platform,
+      allowedDomains: normalizeAllowedDomains(
+        platform.allowedDomains?.length
+          ? platform.allowedDomains
+          : inferAllowedDomains({ platformType: platform.platformType, url: platform.url })
+      )
     })),
     taskRulesByPlatform: {
       ...initialState.taskRulesByPlatform,
@@ -171,21 +229,25 @@ export const buildTabbitBatchPrompt = ({ shop, rules }) => {
 
   const expectedShopName = shop.expectedShopName || shop.detectedName || shop.name;
   const targetUrl = shop.url || 'https://myseller.taobao.com/home.htm/QnworkbenchHome/';
+  const platformLabel = PLATFORM_IDENTITY_DEFAULTS[shop.platformType]?.label || shop.platformType || '未知平台';
+  const allowedDomains = normalizeAllowedDomains(shop.allowedDomains);
 
   return [
     '你是 DataFactory 的本地采集执行器。请使用当前 Tabbit 浏览器完成一次批量采集，只做读取，不做提交、删除、付款、发布、改价、授权等写操作。',
     '',
+    `目标平台: ${platformLabel}`,
     `目标店铺: ${expectedShopName}`,
     `目标页面: ${targetUrl}`,
+    `允许域名: ${allowedDomains.length ? allowedDomains.join(', ') : '未限制'}`,
     '',
     '执行步骤:',
-    `1. 打开目标页面。如果当前不在千牛商家工作台首页，请进入 ${targetUrl}。`,
-    `2. 先校准店铺名: 页面右上角/店铺信息处必须是「${expectedShopName}」。如果当前店铺不是它，先尝试切换/寻找「${expectedShopName}」；找不到就停止并返回 blocked，不要采集。`,
-    '3. 在「店铺数据」区域一次性读取下面所有字段，只读取每张卡片里的当前主数值，不读取昨日值；不要猜测，不确定就标 error。',
+    `1. 打开目标页面。如果当前页面不在允许域名内，必须先进入 ${targetUrl}；如果被带到其他平台或登录页，停止并返回 blocked。`,
+    `2. 先校准店铺名: 页面右上角/店铺信息处必须是「${expectedShopName}」。如果当前店铺不是它，先尝试在当前平台内切换/寻找「${expectedShopName}」；找不到就停止并返回 blocked，不要采集。`,
+    '3. 校准通过后一次性读取下面所有字段，只读取当前主数值，不读取昨日值；不要猜测，不确定就标 error。',
     fieldLines,
     '',
     '只返回 JSON，不要解释，不要 Markdown:',
-    '{"shopCalibration":{"expectedShopName":"' + expectedShopName + '","detectedShopName":"","status":"verified|mismatch|blocked"},"fields":[{"fieldName":"","value":"","status":"success|error","evidence":"","confidence":0}],"blockers":[],"dataUpdatedAt":""}'
+    '{"shopCalibration":{"expectedShopName":"' + expectedShopName + '","detectedShopName":"","status":"verified|mismatch|blocked"},"currentUrl":"","fields":[{"fieldName":"","value":"","status":"success|error","evidence":"","confidence":0}],"blockers":[],"dataUpdatedAt":""}'
   ].join('\n');
 };
 
@@ -225,11 +287,25 @@ export const createCollectionRun = (state, { shopId, fieldNames } = {}) => {
   };
 };
 
-export const writeCollectionRecord = (state, { shopId, shopName, data = {}, status = 'success', source = 'server-api', evidence = '' } = {}) => {
+export const writeCollectionRecord = (state, { shopId, shopName, data = {}, status = 'success', source = 'server-api', evidence = '', shopCalibration, currentUrl } = {}) => {
   const normalized = normalizeDataFactoryState(state);
   const shop = findShop(normalized, shopId || shopName || normalized.activePlatform);
   if (!shop) return { ok: false, error: 'shop_not_found' };
   if (shop.authStatus !== 'verified') return { ok: false, error: 'shop_not_verified', shop };
+
+  if (shopCalibration) {
+    const detectedName = shopCalibration.detectedShopName?.trim() || '';
+    const expectedName = shop.expectedShopName?.trim() || shop.detectedName?.trim() || '';
+    if (shopCalibration.status !== 'verified') return { ok: false, error: 'shop_calibration_not_verified', shop, shopCalibration };
+    if (expectedName && !detectedName) return { ok: false, error: 'shop_name_missing', shop, shopCalibration };
+    if (expectedName && detectedName && detectedName !== expectedName) {
+      return { ok: false, error: 'shop_name_mismatch', shop, shopCalibration };
+    }
+  }
+
+  if (currentUrl && !isUrlAllowedForShop(shop, currentUrl)) {
+    return { ok: false, error: 'current_url_not_allowed', shop, currentUrl };
+  }
 
   const readyFieldNames = new Set(getReadyRules(normalized, shop.id).map(rule => rule.fieldName));
   const matchedFields = Object.keys(data).filter(fieldName => readyFieldNames.has(fieldName));

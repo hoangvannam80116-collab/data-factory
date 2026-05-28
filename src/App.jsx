@@ -43,7 +43,11 @@ import {
   INITIAL_HISTORY_RECORDS,
   INITIAL_PLATFORMS,
   INITIAL_TASK_RULES_BY_PLATFORM,
+  PLATFORM_IDENTITY_DEFAULTS,
   buildTabbitBatchPrompt,
+  inferAllowedDomains,
+  isUrlAllowedForShop,
+  normalizeAllowedDomains,
   normalizeDataFactoryState
 } from './dataFactoryModel.js';
 
@@ -58,7 +62,13 @@ export default function App() {
   const [activePlatform, setActivePlatform] = useState('taobao');
 
   const [isAddShopModalOpen, setIsAddShopModalOpen] = useState(false);
-  const [newShopForm, setNewShopForm] = useState({ name: '', platformType: 'taobao', url: 'https://', expectedShopName: '' });
+  const [newShopForm, setNewShopForm] = useState({
+    name: '',
+    platformType: 'taobao',
+    url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
+    expectedShopName: '',
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', ')
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedStates, setCopiedStates] = useState({ key: false, cli: false, mcp: false });
 
@@ -158,7 +168,7 @@ export default function App() {
   const calibratePlatform = (platformId, payload = {}) => {
     setPlatforms(prev => prev.map(platform => {
       if (platform.id !== platformId) return platform;
-      const inferredName = payload.detectedName ?? (platform.platformType === 'taobao' ? '南苏科技' : '');
+      const inferredName = payload.detectedName ?? platform.expectedShopName ?? (platform.platformType === 'taobao' ? '南苏科技' : '');
       const calibration = resolveCalibration(platform, inferredName);
       return {
         ...platform,
@@ -356,9 +366,25 @@ export default function App() {
         calibratePlatform(platformId, { detectedName, url });
         return { ok: true, platformId, ...calibration };
       },
-      writeRecord: ({ data = {}, status = 'success', source = 'tabbit', evidence = '' } = {}) => {
+      writeRecord: ({ data = {}, status = 'success', source = 'tabbit', evidence = '', shopCalibration, currentUrl } = {}) => {
         if (activePlatformData?.authStatus !== 'verified') {
           return { ok: false, error: 'platform_not_verified', activePlatformName };
+        }
+        if (shopCalibration) {
+          const detectedName = shopCalibration.detectedShopName?.trim() || '';
+          const expectedName = activePlatformData.expectedShopName?.trim() || activePlatformData.detectedName?.trim() || '';
+          if (shopCalibration.status !== 'verified') {
+            return { ok: false, error: 'shop_calibration_not_verified', activePlatformName, shopCalibration };
+          }
+          if (expectedName && !detectedName) {
+            return { ok: false, error: 'shop_name_missing', activePlatformName, shopCalibration };
+          }
+          if (expectedName && detectedName && detectedName !== expectedName) {
+            return { ok: false, error: 'shop_name_mismatch', activePlatformName, shopCalibration };
+          }
+        }
+        if (currentUrl && !isUrlAllowedForShop(activePlatformData, currentUrl)) {
+          return { ok: false, error: 'current_url_not_allowed', activePlatformName, currentUrl };
         }
         if (!hasExecutableRules) {
           return { ok: false, error: 'no_executable_rules', activePlatformName };
@@ -430,7 +456,7 @@ export default function App() {
   }, [activePlatformData]);
 
   const handleAddShopSubmit = () => {
-    if (!newShopForm.name) return;
+    if (!newShopForm.name.trim() || !newShopForm.expectedShopName.trim()) return;
     const newShop = {
       id: `shop_${Date.now()}`,
       workspaceId,
@@ -438,6 +464,7 @@ export default function App() {
       name: newShopForm.name,
       url: newShopForm.url || 'https://',
       expectedShopName: newShopForm.expectedShopName.trim(),
+      allowedDomains: normalizeAllowedDomains(newShopForm.allowedDomains),
       authStatus: 'unauthorized',
       detectedName: ''
     };
@@ -445,7 +472,13 @@ export default function App() {
     setTaskRulesByPlatform(prev => ({ ...prev, [newShop.id]: [] }));
     setActivePlatform(newShop.id);
     setMainView('dashboard');
-    setNewShopForm({ name: '', platformType: 'taobao', url: 'https://', expectedShopName: '' });
+    setNewShopForm({
+      name: '',
+      platformType: 'taobao',
+      url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
+      expectedShopName: '',
+      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', ')
+    });
     setIsAddShopModalOpen(false);
   };
 
@@ -763,7 +796,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
       <div className="flex-1 flex overflow-hidden">
         <div className="w-60 bg-white border-r border-[#E5E6EB] flex flex-col shrink-0 z-20">
           <div className="flex-1 overflow-y-auto py-5">
-            <div className="px-5 text-xs font-medium text-[#86909C] mb-3">沙盒隔离环境 (店铺)</div>
+            <div className="px-5 text-xs font-medium text-[#86909C] mb-3">店铺</div>
             <div className="space-y-1 px-3">
               {platforms.map(p => (
                 <button
@@ -795,7 +828,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                 onClick={() => setIsAddShopModalOpen(true)}
                 className="w-full flex items-center gap-2 px-3 py-2 mt-3 rounded border border-dashed border-[#E5E6EB] text-[#86909C] hover:text-[#2954FF] hover:border-[#2954FF] hover:bg-blue-50 transition-colors text-[13px]"
               >
-                <Plus size={14} /> 新建店铺环境
+                <Plus size={14} /> 添加店铺
               </button>
             </div>
 
@@ -1398,7 +1431,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   <div className="bg-white rounded border border-[#E5E6EB] shadow-sm overflow-hidden flex flex-col min-h-[600px]">
                     <div className="px-8 pt-8 pb-4 border-b border-[#E5E6EB] bg-[#FAFAFA]">
                       <h2 className="text-xl font-bold text-[#1D2129] flex items-center gap-2 mb-2"><Terminal size={20} className="text-[#2954FF]" /> 开放接口与 AI 集成</h2>
-                      <p className="text-[#86909C] text-[13px]">将当前沙盒中的结构化数据，无缝对接给大语言模型 (LLM) 或自动化业务流。</p>
+                      <p className="text-[#86909C] text-[13px]">将当前店铺中的结构化数据，无缝对接给大语言模型 (LLM) 或自动化业务流。</p>
 
                       <div className="flex items-center gap-6 mt-6">
                         <button onClick={() => setApiTab('mcp')} className={`pb-3 text-[14px] font-medium border-b-[3px] transition-colors ${apiTab === 'mcp' ? 'border-[#2954FF] text-[#2954FF]' : 'border-transparent text-[#4E5969] hover:text-[#1D2129]'}`}>
@@ -1452,7 +1485,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                                   </tr>
                                   <tr>
                                     <td className="px-4 py-3 font-mono text-[#2954FF]">trigger_extraction</td>
-                                    <td className="px-4 py-3 text-[#1D2129]">命令沙盒立即在后台执行一次无头抓取任务</td>
+                                    <td className="px-4 py-3 text-[#1D2129]">命令店铺任务立即在后台执行一次采集</td>
                                     <td className="px-4 py-3 font-mono text-[#86909C]">shop_id (string)</td>
                                   </tr>
                                 </tbody>
@@ -1559,7 +1592,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
             <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
               <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2">
                 <Store size={16} className="text-[#2954FF]" />
-                新建隔离环境
+                添加店铺
               </h3>
               <button onClick={() => setIsAddShopModalOpen(false)} className="text-[#86909C] hover:text-[#1D2129] transition-colors"><X size={16} /></button>
             </div>
@@ -1571,25 +1604,24 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   value={newShopForm.platformType}
                   onChange={(e) => {
                     const platformType = e.target.value;
-                    const defaultUrls = {
-                      taobao: 'https://myseller.taobao.com/',
-                      pdd: 'https://mms.pinduoduo.com/login/',
-                      jd: 'https://shop.jd.com/',
-                      other: 'https://'
-                    };
-                    setNewShopForm({ ...newShopForm, platformType, url: defaultUrls[platformType] || 'https://' });
+                    const defaults = PLATFORM_IDENTITY_DEFAULTS[platformType] || PLATFORM_IDENTITY_DEFAULTS.other;
+                    setNewShopForm({
+                      ...newShopForm,
+                      platformType,
+                      url: defaults.url,
+                      allowedDomains: defaults.allowedDomains.join(', ')
+                    });
                   }}
                   className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
                 >
-                  <option value="taobao">淘宝 / 千牛</option>
-                  <option value="pdd">拼多多</option>
-                  <option value="jd">京东</option>
-                  <option value="other">其他平台</option>
+                  {Object.entries(PLATFORM_IDENTITY_DEFAULTS).map(([value, config]) => (
+                    <option key={value} value={value}>{config.label}</option>
+                  ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">环境名称 <span className="text-red-500">*</span></label>
+                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">店铺备注名 <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   autoFocus
@@ -1608,25 +1640,43 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   placeholder="https://myseller.taobao.com/"
                   className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
                   value={newShopForm.url}
-                  onChange={(e) => setNewShopForm({ ...newShopForm, url: e.target.value })}
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    setNewShopForm({
+                      ...newShopForm,
+                      url,
+                      allowedDomains: inferAllowedDomains({ platformType: newShopForm.platformType, url }).join(', ')
+                    });
+                  }}
                 />
               </div>
 
               <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">预期店铺名</label>
+                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">预期店铺名 <span className="text-red-500">*</span></label>
                 <input
                   type="text"
-                  placeholder="例如：南苏科技；留空时首次校准会自动写入识别结果"
+                  placeholder="例如：南苏科技；Tabbit 必须先校准到这个店铺"
                   className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
                   value={newShopForm.expectedShopName}
                   onChange={(e) => setNewShopForm({ ...newShopForm, expectedShopName: e.target.value })}
                 />
               </div>
+
+              <div>
+                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">允许域名</label>
+                <textarea
+                  placeholder="例如：myseller.taobao.com, sycm.taobao.com"
+                  className="w-full min-h-[72px] border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] leading-relaxed focus:border-[#2954FF] focus:outline-none transition-colors resize-none"
+                  value={newShopForm.allowedDomains}
+                  onChange={(e) => setNewShopForm({ ...newShopForm, allowedDomains: e.target.value })}
+                />
+                <div className="text-[12px] text-[#86909C] mt-1">Tabbit 如果跑到其他平台或不在这些域名内，DataFactory 会阻止写回。</div>
+              </div>
             </div>
 
             <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
               <button onClick={() => setIsAddShopModalOpen(false)} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors">取消</button>
-              <button onClick={handleAddShopSubmit} disabled={!newShopForm.name.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">确定</button>
+              <button onClick={handleAddShopSubmit} disabled={!newShopForm.name.trim() || !newShopForm.expectedShopName.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">保存店铺</button>
             </div>
           </div>
         </div>

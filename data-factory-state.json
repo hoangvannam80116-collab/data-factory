@@ -13,7 +13,12 @@
         "id": "taobao",
         "platformType": "taobao",
         "name": "淘宝店铺A (核心)",
-        "url": "https://myseller.taobao.com/home.htm/QnworkbenchHome/"
+        "url": "https://myseller.taobao.com/home.htm/QnworkbenchHome/",
+        "allowedDomains": [
+          "myseller.taobao.com",
+          "sycm.taobao.com",
+          "qn.taobao.com"
+        ]
       },
       {
         "workspaceId": "workspace-demo-nansu",
@@ -23,7 +28,10 @@
         "id": "pdd",
         "platformType": "pdd",
         "name": "拼多多专卖店",
-        "url": "https://mms.pinduoduo.com/login/"
+        "url": "https://mms.pinduoduo.com/login/",
+        "allowedDomains": [
+          "mms.pinduoduo.com"
+        ]
       },
       {
         "workspaceId": "workspace-demo-nansu",
@@ -33,7 +41,11 @@
         "id": "jd",
         "platformType": "jd",
         "name": "京东旗舰店",
-        "url": "https://shop.jd.com/home"
+        "url": "https://shop.jd.com/home",
+        "allowedDomains": [
+          "shop.jd.com",
+          "passport.shop.jd.com"
+        ]
       }
     ],
     "taskRulesByPlatform": {
@@ -357,5 +369,5 @@
     ],
     "collectionRequests": []
   },
-  "updatedAt": 1779983686422
+  "updatedAt": 1779985554961
 }
