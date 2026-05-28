@@ -70,7 +70,7 @@ export default function App() {
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', ')
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [copiedStates, setCopiedStates] = useState({ key: false, cli: false, mcp: false });
+  const [copiedStates, setCopiedStates] = useState({ key: false, cli: false, mcp: false, task: false });
 
   const [apiTab, setApiTab] = useState('mcp');
 
@@ -298,6 +298,20 @@ export default function App() {
         };
       });
     });
+  };
+
+  const cancelPendingCollectionRequest = () => {
+    if (!pendingCollectionRequest) return;
+    setCollectionRequests(requests => requests.map(request => (
+      request.id === pendingCollectionRequest.id
+        ? {
+          ...request,
+          status: 'cancelled',
+          completedAt: Date.now(),
+          evidence: request.evidence || '用户取消等待中的采集任务。'
+        }
+        : request
+    )));
   };
 
   const createCollectionRequest = ({ fieldNames } = {}) => {
@@ -732,6 +746,9 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
     if (!canRunCollection) return;
     const result = createCollectionRequest();
     if (!result.ok) return;
+    if (result.request?.tabbitPrompt) {
+      handleCopy('task', result.request.tabbitPrompt);
+    }
     setIsRefreshing(true);
     setTimeout(() => setIsRefreshing(false), 500);
   };
@@ -907,7 +924,16 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   </button>
                   {pendingCollectionRequest && (
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100">
-                      <RefreshCw size={12} className="animate-spin" /> 等待 Codex 执行: {pendingCollectionRequest.id}
+                      <RefreshCw size={12} className="animate-spin" /> 待本地执行器处理: {pendingCollectionRequest.id}
+                      <button
+                        onClick={() => handleCopy('task', pendingCollectionRequest.tabbitPrompt || '')}
+                        className="ml-1 text-[#2954FF] hover:underline"
+                      >
+                        {copiedStates.task ? '已复制' : '复制指令'}
+                      </button>
+                      <button onClick={cancelPendingCollectionRequest} className="text-[#86909C] hover:text-red-500">
+                        取消
+                      </button>
                     </div>
                   )}
                   <div className="h-4 w-px bg-[#E5E6EB]" />
@@ -950,7 +976,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     }`}
                   >
                     <Bot size={13} className={isRefreshing ? 'animate-pulse' : ''} />
-                    {isRefreshing ? '已生成采集任务...' : (pendingCollectionRequest ? '等待 Codex 执行' : (canRunCollection ? '调用 Tabbit 采集' : '待授权/配置'))}
+                    {isRefreshing ? '已生成并复制指令' : (pendingCollectionRequest ? '任务已生成' : (canRunCollection ? '生成采集指令' : '待授权/配置'))}
                   </button>
                 </div>
               </div>
@@ -1269,7 +1295,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         canRunFieldModalCollection ? 'bg-[#2954FF] hover:bg-blue-700 text-white' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
                       }`}
                     >
-                      <PlaySquare size={15} /> {pendingCollectionRequest ? '已有任务等待 Codex' : (fieldModal.mode === 'create' ? '保存后可测试' : (canRunFieldModalCollection ? '测试当前字段采集' : '待授权/配置后测试'))}
+                      <PlaySquare size={15} /> {pendingCollectionRequest ? '已有任务待本地执行器处理' : (fieldModal.mode === 'create' ? '保存后可测试' : (canRunFieldModalCollection ? '测试当前字段采集' : '待授权/配置后测试'))}
                     </button>
                     <button
                       onClick={handleFieldModalConfirm}
@@ -1329,7 +1355,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         }`}
                       >
                         <Bot size={14} />
-                        {isRefreshing ? '已生成采集任务...' : (pendingCollectionRequest ? '等待 Codex 执行' : (canRunCollection ? '调用 Tabbit 采集' : '待授权/配置'))}
+                        {isRefreshing ? '已生成并复制指令' : (pendingCollectionRequest ? '任务已生成' : (canRunCollection ? '生成采集指令' : '待授权/配置'))}
                       </button>
                     </div>
                   </div>
@@ -1353,7 +1379,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         <div className="text-[26px] font-bold text-[#1D2129]">{latestCollectionRequest?.time || latestRecord?.time || '-'}</div>
                         {latestCollectionRequest && (
                           <div className="text-[11px] text-[#86909C] mt-1 truncate">
-                            {latestCollectionRequest.status === 'waiting_for_codex' ? '等待 Codex 执行' : latestCollectionRequest.status === 'done' ? '已写回表格' : '执行异常'}
+                            {latestCollectionRequest.status === 'waiting_for_codex' ? '待本地执行器处理' : latestCollectionRequest.status === 'done' ? '已写回表格' : latestCollectionRequest.status === 'cancelled' ? '已取消' : '执行异常'}
                           </div>
                         )}
                       </div>
