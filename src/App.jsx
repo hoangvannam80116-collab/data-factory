@@ -54,6 +54,38 @@ import {
 export default function App() {
   const storageKey = 'data-factory-mvp-state-v2';
   const apiBase = 'http://127.0.0.1:5180';
+  const demoScannedTabbitShops = [
+    {
+      scanId: 'tabbit-taobao-nansu',
+      platformType: 'taobao',
+      detectedName: '南苏科技',
+      displayName: '南苏科技',
+      url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
+      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
+      tabTitle: '千牛商家工作台',
+      loginStatus: 'active'
+    },
+    {
+      scanId: 'tabbit-pdd-demo',
+      platformType: 'pdd',
+      detectedName: '拼多多专卖店',
+      displayName: '拼多多专卖店',
+      url: PLATFORM_IDENTITY_DEFAULTS.pdd.url,
+      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
+      tabTitle: '拼多多商家后台',
+      loginStatus: 'active'
+    },
+    {
+      scanId: 'tabbit-jd-demo',
+      platformType: 'jd',
+      detectedName: '京东旗舰店',
+      displayName: '京东旗舰店',
+      url: PLATFORM_IDENTITY_DEFAULTS.jd.url,
+      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
+      tabTitle: '京麦工作台',
+      loginStatus: 'needs_attention'
+    }
+  ];
   const [workspaceId] = useState(DEFAULT_WORKSPACE_ID);
   const [userId] = useState(DEFAULT_USER_ID);
   const [mainView, setMainView] = useState('dashboard');
@@ -62,6 +94,10 @@ export default function App() {
   const [activePlatform, setActivePlatform] = useState('taobao');
 
   const [isAddShopModalOpen, setIsAddShopModalOpen] = useState(false);
+  const [scannedTabbitShops, setScannedTabbitShops] = useState(demoScannedTabbitShops);
+  const [selectedScannedShopIds, setSelectedScannedShopIds] = useState(['tabbit-taobao-nansu']);
+  const [isScanningTabbit, setIsScanningTabbit] = useState(false);
+  const [scanSource, setScanSource] = useState('demo');
   const [newShopForm, setNewShopForm] = useState({
     name: '',
     platformType: 'taobao',
@@ -600,6 +636,109 @@ export default function App() {
     setIsAddShopModalOpen(false);
   };
 
+  const scanTabbitShops = async () => {
+    setIsScanningTabbit(true);
+    try {
+      const response = await fetch(`${apiBase}/runner/tabbit-shops`, { cache: 'no-store' });
+      const payload = await response.json();
+      if (payload?.ok && Array.isArray(payload.shops) && payload.shops.length > 0) {
+        setScannedTabbitShops(payload.shops);
+        setSelectedScannedShopIds(payload.shops.filter(shop => shop.loginStatus !== 'expired').map(shop => shop.scanId));
+        setScanSource(payload.source || 'runner');
+        return;
+      }
+      throw new Error('empty_runner_scan');
+    } catch {
+      setScannedTabbitShops(demoScannedTabbitShops);
+      setSelectedScannedShopIds(demoScannedTabbitShops.filter(shop => shop.loginStatus === 'active').map(shop => shop.scanId));
+      setScanSource('demo');
+    } finally {
+      setIsScanningTabbit(false);
+    }
+  };
+
+  const openTabbitScanModal = () => {
+    setIsAddShopModalOpen(true);
+    scanTabbitShops();
+  };
+
+  const toggleScannedShopSelection = (scanId) => {
+    setSelectedScannedShopIds(ids => (
+      ids.includes(scanId) ? ids.filter(id => id !== scanId) : [...ids, scanId]
+    ));
+  };
+
+  const buildRulesForScannedShop = (shopId, platformType) => {
+    const sourceRules = INITIAL_TASK_RULES_BY_PLATFORM[platformType] || [];
+    return sourceRules.map(rule => ({
+      ...rule,
+      id: `${shopId}_${rule.id || rule.fieldName}`,
+      workspaceId,
+      shopId,
+      status: platformType === 'taobao' ? 'ready' : rule.status || 'draft'
+    }));
+  };
+
+  const getScannedShopNames = (shop) => new Set(
+    [shop.detectedName, shop.displayName].filter(Boolean).map(name => name.trim())
+  );
+
+  const isSameScannedShop = (platform, shop) => {
+    if (platform.platformType !== shop.platformType) return false;
+    const scannedNames = getScannedShopNames(shop);
+    return [platform.expectedShopName, platform.detectedName, platform.name]
+      .filter(Boolean)
+      .some(name => scannedNames.has(name.trim()));
+  };
+
+  const handleSyncScannedShops = () => {
+    const selectedShops = scannedTabbitShops.filter(shop => selectedScannedShopIds.includes(shop.scanId));
+    if (selectedShops.length === 0) return;
+
+    let firstSyncedShopId = activePlatform;
+    const nextRulesByPlatform = { ...taskRulesByPlatform };
+    const nextPlatforms = [...platforms];
+
+    selectedShops.forEach((shop, index) => {
+      const existingShop = nextPlatforms.find(platform => isSameScannedShop(platform, shop));
+      const defaults = PLATFORM_IDENTITY_DEFAULTS[shop.platformType] || PLATFORM_IDENTITY_DEFAULTS.other;
+      const syncPayload = {
+        workspaceId,
+        platformType: shop.platformType,
+        name: existingShop?.name || shop.displayName || shop.detectedName,
+        url: shop.url || defaults.url,
+        expectedShopName: shop.detectedName,
+        allowedDomains: normalizeAllowedDomains(shop.allowedDomains?.length ? shop.allowedDomains : defaults.allowedDomains),
+        authStatus: shop.loginStatus === 'active' ? 'verified' : 'unauthorized',
+        detectedName: shop.loginStatus === 'active' ? shop.detectedName : '',
+        detectedFrom: 'tabbit-scan',
+        tabbitTabTitle: shop.tabTitle,
+        lastScannedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      };
+
+      if (existingShop) {
+        Object.assign(existingShop, syncPayload);
+        if (index === 0) firstSyncedShopId = existingShop.id;
+        return;
+      }
+
+      const shopId = `tabbit_${shop.platformType}_${Date.now()}_${index}`;
+      const newShop = {
+        id: shopId,
+        ...syncPayload
+      };
+      nextPlatforms.push(newShop);
+      nextRulesByPlatform[shopId] = buildRulesForScannedShop(shopId, shop.platformType);
+      if (index === 0) firstSyncedShopId = shopId;
+    });
+
+    setPlatforms(nextPlatforms);
+    setTaskRulesByPlatform(nextRulesByPlatform);
+    setActivePlatform(firstSyncedShopId);
+    setMainView('dashboard');
+    setIsAddShopModalOpen(false);
+  };
+
   const buildFieldFormFromTask = (task = {}) => ({
     fieldName: task.fieldName || '',
     prompt: task.prompt || '',
@@ -1000,10 +1139,10 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                 </button>
               ))}
               <button
-                onClick={() => setIsAddShopModalOpen(true)}
+                onClick={openTabbitScanModal}
                 className="w-full flex items-center gap-2 px-3 py-2 mt-3 rounded border border-dashed border-[#E5E6EB] text-[#86909C] hover:text-[#2954FF] hover:border-[#2954FF] hover:bg-blue-50 transition-colors text-[13px]"
               >
-                <Plus size={14} /> 添加店铺
+                <RefreshCw size={14} /> 扫描 Tabbit 店铺
               </button>
             </div>
 
@@ -1802,95 +1941,94 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
 
       {isAddShopModalOpen && (
         <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded shadow-lg w-full max-w-md overflow-hidden">
+          <div className="bg-white rounded shadow-lg w-full max-w-3xl overflow-hidden">
             <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
               <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2">
-                <Store size={16} className="text-[#2954FF]" />
-                添加店铺
+                <RefreshCw size={16} className={`text-[#2954FF] ${isScanningTabbit ? 'animate-spin' : ''}`} />
+                扫描 Tabbit 已登录店铺
               </h3>
               <button onClick={() => setIsAddShopModalOpen(false)} className="text-[#86909C] hover:text-[#1D2129] transition-colors"><X size={16} /></button>
             </div>
 
-            <div className="p-6 space-y-5">
-              <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">平台类型 <span className="text-red-500">*</span></label>
-                <select
-                  value={newShopForm.platformType}
-                  onChange={(e) => {
-                    const platformType = e.target.value;
-                    const defaults = PLATFORM_IDENTITY_DEFAULTS[platformType] || PLATFORM_IDENTITY_DEFAULTS.other;
-                    setNewShopForm({
-                      ...newShopForm,
-                      platformType,
-                      url: defaults.url,
-                      allowedDomains: defaults.allowedDomains.join(', ')
-                    });
-                  }}
-                  className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                >
-                  {Object.entries(PLATFORM_IDENTITY_DEFAULTS).map(([value, config]) => (
-                    <option key={value} value={value}>{config.label}</option>
-                  ))}
-                </select>
+            <div className="p-6 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[13px] text-[#1D2129] font-medium">先在 Tabbit 浏览器登录店铺，再回到这里同步。</div>
+                  <div className="text-[12px] text-[#86909C] mt-1">
+                    DataFactory 不托管账号和 Cookie，只读取 Tabbit 已登录页面上的平台、店铺名和入口域名。
+                  </div>
+                </div>
+                <div className={`shrink-0 px-2.5 py-1 rounded border text-[12px] ${
+                  scanSource === 'runner' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+                }`}>
+                  {scanSource === 'runner' ? '来自本地 Runner' : '演示扫描结果'}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">店铺备注名 <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="例如：淘宝店铺A (核心)"
-                  className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                  value={newShopForm.name}
-                  onChange={(e) => setNewShopForm({ ...newShopForm, name: e.target.value })}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddShopSubmit()}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">后台入口链接 <span className="text-red-500">*</span></label>
-                <input
-                  type="url"
-                  placeholder="https://myseller.taobao.com/"
-                  className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                  value={newShopForm.url}
-                  onChange={(e) => {
-                    const url = e.target.value;
-                    setNewShopForm({
-                      ...newShopForm,
-                      url,
-                      allowedDomains: inferAllowedDomains({ platformType: newShopForm.platformType, url }).join(', ')
-                    });
-                  }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">预期店铺名 <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  placeholder="例如：南苏科技；Tabbit 必须先校准到这个店铺"
-                  className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                  value={newShopForm.expectedShopName}
-                  onChange={(e) => setNewShopForm({ ...newShopForm, expectedShopName: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-bold text-[#1D2129] mb-2">允许域名</label>
-                <textarea
-                  placeholder="例如：myseller.taobao.com, sycm.taobao.com"
-                  className="w-full min-h-[72px] border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] leading-relaxed focus:border-[#2954FF] focus:outline-none transition-colors resize-none"
-                  value={newShopForm.allowedDomains}
-                  onChange={(e) => setNewShopForm({ ...newShopForm, allowedDomains: e.target.value })}
-                />
-                <div className="text-[12px] text-[#86909C] mt-1">Tabbit 如果跑到其他平台或不在这些域名内，DataFactory 会阻止写回。</div>
+              <div className="border border-[#E5E6EB] rounded overflow-hidden">
+                <div className="grid grid-cols-[44px_1.2fr_1fr_1.4fr_96px] bg-[#F7F8FA] border-b border-[#E5E6EB] text-[12px] font-medium text-[#4E5969]">
+                  <div className="px-3 py-2" />
+                  <div className="px-3 py-2">店铺</div>
+                  <div className="px-3 py-2">平台</div>
+                  <div className="px-3 py-2">Tabbit 页面</div>
+                  <div className="px-3 py-2">状态</div>
+                </div>
+                <div className="divide-y divide-[#E5E6EB] max-h-[320px] overflow-y-auto customized-scrollbar">
+                  {scannedTabbitShops.map(shop => {
+                    const alreadySynced = platforms.some(platform => isSameScannedShop(platform, shop));
+                    const selected = selectedScannedShopIds.includes(shop.scanId);
+                    return (
+                      <button
+                        key={shop.scanId}
+                        onClick={() => toggleScannedShopSelection(shop.scanId)}
+                        className={`w-full grid grid-cols-[44px_1.2fr_1fr_1.4fr_96px] items-center text-left text-[13px] transition-colors ${
+                          selected ? 'bg-blue-50/60' : 'bg-white hover:bg-[#F7F8FA]'
+                        }`}
+                      >
+                        <div className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleScannedShopSelection(shop.scanId)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded border-gray-300 text-[#2954FF] focus:ring-[#2954FF] w-3.5 h-3.5 cursor-pointer"
+                          />
+                        </div>
+                        <div className="px-3 py-3 min-w-0">
+                          <div className="font-bold text-[#1D2129] truncate">{shop.displayName || shop.detectedName}</div>
+                          <div className="text-[12px] text-[#86909C] truncate">{shop.detectedName}</div>
+                        </div>
+                        <div className="px-3 py-3 text-[#4E5969]">{platformLabels[shop.platformType] || '其他'}</div>
+                        <div className="px-3 py-3 min-w-0">
+                          <div className="truncate text-[#4E5969]">{shop.tabTitle}</div>
+                          <div className="truncate text-[11px] text-[#86909C]">{shop.url}</div>
+                        </div>
+                        <div className="px-3 py-3">
+                          <span className={`inline-flex px-2 py-0.5 rounded border text-[11px] ${
+                            alreadySynced
+                              ? 'bg-gray-100 text-[#86909C] border-gray-200'
+                              : shop.loginStatus === 'active'
+                                ? 'bg-green-50 text-green-600 border-green-100'
+                                : 'bg-amber-50 text-amber-600 border-amber-100'
+                          }`}>
+                            {alreadySynced ? '已同步' : shop.loginStatus === 'active' ? '可同步' : '需确认'}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
               <button onClick={() => setIsAddShopModalOpen(false)} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors">取消</button>
-              <button onClick={handleAddShopSubmit} disabled={!newShopForm.name.trim() || !newShopForm.expectedShopName.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">保存店铺</button>
+              <button onClick={scanTabbitShops} disabled={isScanningTabbit} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors disabled:opacity-50">
+                {isScanningTabbit ? '扫描中...' : '重新扫描'}
+              </button>
+              <button onClick={handleSyncScannedShops} disabled={selectedScannedShopIds.length === 0} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">
+                同步选中店铺
+              </button>
             </div>
           </div>
         </div>

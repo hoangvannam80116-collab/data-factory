@@ -10,6 +10,7 @@ import {
   getShopRules,
   markCollectionRunStarted,
   normalizeDataFactoryState,
+  PLATFORM_IDENTITY_DEFAULTS,
   writeCollectionRecord
 } from './src/dataFactoryModel.js';
 
@@ -27,6 +28,39 @@ const nowText = () => new Date().toLocaleTimeString('zh-CN', {
   hour12: false,
   timeZone: 'Asia/Shanghai'
 });
+
+const demoTabbitShops = [
+  {
+    scanId: 'tabbit-taobao-nansu',
+    platformType: 'taobao',
+    detectedName: '南苏科技',
+    displayName: '南苏科技',
+    url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
+    tabTitle: '千牛商家工作台',
+    loginStatus: 'active'
+  },
+  {
+    scanId: 'tabbit-pdd-demo',
+    platformType: 'pdd',
+    detectedName: '拼多多专卖店',
+    displayName: '拼多多专卖店',
+    url: PLATFORM_IDENTITY_DEFAULTS.pdd.url,
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
+    tabTitle: '拼多多商家后台',
+    loginStatus: 'active'
+  },
+  {
+    scanId: 'tabbit-jd-demo',
+    platformType: 'jd',
+    detectedName: '京东旗舰店',
+    displayName: '京东旗舰店',
+    url: PLATFORM_IDENTITY_DEFAULTS.jd.url,
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
+    tabTitle: '京麦工作台',
+    loginStatus: 'needs_attention'
+  }
+];
 
 const readJsonBody = async (request) => {
   const chunks = [];
@@ -131,6 +165,16 @@ const server = http.createServer(async (request, response) => {
         runnableStatuses.has(item.status) && (!shopId || item.shopId === shopId || item.platformId === shopId)
       ));
       send(response, 200, { ok: true, run: run || null });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/runner/tabbit-shops') {
+      send(response, 200, {
+        ok: true,
+        source: 'demo',
+        scannedAt: nowText(),
+        shops: demoTabbitShops
+      });
       return;
     }
 
