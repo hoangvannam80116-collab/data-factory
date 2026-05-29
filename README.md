@@ -27,11 +27,15 @@ data-factory-state.json    演示状态与采集记录
 ## 本地启动
 
 1. 安装依赖：`npm install`
-2. 启动本地 API：`npm run api`
-3. 启动前端：`npm run dev`
-4. 构建验证：`npm run build`
+2. 启动前端和本地写回 API：`npm run dev`
+3. 构建验证：`npm run build`
 
 前端默认访问 `http://127.0.0.1:5180` 读取和回写状态。
+
+如果只想单独启动某一侧服务：
+
+- 本地写回 API：`npm run api`
+- 前端 UI：`npm run dev:ui`
 
 ## API 说明
 

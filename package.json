@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "api": "node server.mjs",
-    "dev": "vite --host 127.0.0.1",
+    "dev": "node dev.mjs",
+    "dev:ui": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
   },

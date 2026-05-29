@@ -74,6 +74,7 @@ export default function App() {
   const [isImportResultModalOpen, setIsImportResultModalOpen] = useState(false);
   const [importResultText, setImportResultText] = useState('');
   const [importResultError, setImportResultError] = useState('');
+  const [localApiStatus, setLocalApiStatus] = useState('checking');
 
   const [apiTab, setApiTab] = useState('mcp');
 
@@ -220,6 +221,7 @@ export default function App() {
         const response = await fetch(`${apiBase}/state`);
         const payload = await response.json();
         if (mounted && payload?.state) {
+          setLocalApiStatus('online');
           applyingRemoteStateRef.current = true;
           applyPersistedState(payload.state);
           lastServerUpdatedAtRef.current = payload.updatedAt || 0;
@@ -228,6 +230,7 @@ export default function App() {
           }, 0);
         }
       } catch (error) {
+        setLocalApiStatus('offline');
         console.warn('Failed to restore DataFactory server state', error);
       }
 
@@ -237,6 +240,26 @@ export default function App() {
     restoreState();
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const checkLocalApi = async () => {
+      try {
+        const response = await fetch(`${apiBase}/health`, { cache: 'no-store' });
+        if (mounted) setLocalApiStatus(response.ok ? 'online' : 'offline');
+      } catch {
+        if (mounted) setLocalApiStatus('offline');
+      }
+    };
+
+    checkLocalApi();
+    const intervalId = setInterval(checkLocalApi, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -258,9 +281,13 @@ export default function App() {
     })
       .then(response => response.json())
       .then(payload => {
+        setLocalApiStatus('online');
         if (payload?.updatedAt) lastServerUpdatedAtRef.current = payload.updatedAt;
       })
-      .catch(error => console.warn('Failed to persist DataFactory server state', error));
+      .catch(error => {
+        setLocalApiStatus('offline');
+        console.warn('Failed to persist DataFactory server state', error);
+      });
   }, [storageReady, workspaceId, userId, platforms, activePlatform, taskRulesByPlatform, historyRecords, collectionRequests]);
 
   useEffect(() => {
@@ -270,6 +297,7 @@ export default function App() {
       try {
         const response = await fetch(`${apiBase}/state`);
         const payload = await response.json();
+        setLocalApiStatus('online');
         if (!payload?.state || !payload.updatedAt || payload.updatedAt <= lastServerUpdatedAtRef.current) return;
 
         applyingRemoteStateRef.current = true;
@@ -279,6 +307,7 @@ export default function App() {
           applyingRemoteStateRef.current = false;
         }, 0);
       } catch (error) {
+        setLocalApiStatus('offline');
         console.warn('Failed to poll DataFactory server state', error);
       }
     }, 1000);
@@ -1051,6 +1080,19 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   <button onClick={handleCalibrateActivePlatform} className="text-[12px] text-[#4E5969] hover:text-[#2954FF] px-2 py-0.5 rounded hover:bg-blue-50 border border-[#E5E6EB]">
                     校准
                   </button>
+                  <div
+                    title={localApiStatus === 'online' ? 'Codex/Tabbit 可通过本地 API 写回采集结果。' : '本地写回 API 未连接。请用 npm run dev 或 npm run api 启动。'}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] border ${
+                      localApiStatus === 'online'
+                        ? 'bg-green-50 text-green-600 border-green-100'
+                        : localApiStatus === 'offline'
+                          ? 'bg-amber-50 text-amber-600 border-amber-100'
+                          : 'bg-gray-100 text-[#86909C] border-gray-200'
+                    }`}
+                  >
+                    {localApiStatus === 'online' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                    {localApiStatus === 'online' ? '本地写回已连接' : localApiStatus === 'offline' ? '本地写回未连接' : '检查写回服务'}
+                  </div>
                   {pendingCollectionRequest && (
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100">
                       <RefreshCw size={12} className="animate-spin" /> 待本地执行器处理: {pendingCollectionRequest.id}
