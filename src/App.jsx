@@ -453,6 +453,10 @@ export default function App() {
       setImportResultError('JSON 格式不正确，请粘贴 Tabbit 返回的完整 JSON。');
       return;
     }
+    if (!payload.dataUpdatedAt?.trim()) {
+      setImportResultError('缺少 dataUpdatedAt。请先让 Tabbit 刷新淘宝/千牛页面，并读取页面显示的「数据更新时间」后再导入。');
+      return;
+    }
 
     const fieldData = Array.isArray(payload.fields)
       ? payload.fields.reduce((data, field) => {
@@ -642,7 +646,7 @@ export default function App() {
   const applyFieldPreset = (fieldName) => {
     const buildStoreMetricPreset = (name, valueType = '数字文本') => ({
       fieldName: name,
-      prompt: `进入千牛商家工作台首页后先刷新页面，等待「店铺数据」模块和「数据更新时间」更新完成，再读取「${name}」卡片里的当前主数值。只返回${valueType}，不要读取昨日值或刷新前旧值。`,
+      prompt: `进入千牛商家工作台首页后，必须先执行一次浏览器刷新/重新加载，等待「店铺数据」模块和「数据更新时间」更新完成，再读取「${name}」卡片里的当前主数值。只返回${valueType}，不要读取昨日值或刷新前旧值。`,
       pagePath: `千牛商家工作台 > 首页 > 店铺数据 > ${name}`,
       clickPath: '左侧导航：首页',
       recognizedPath: `店铺数据 > ${name} > 当前主数值`,
