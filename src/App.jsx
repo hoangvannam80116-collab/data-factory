@@ -1203,20 +1203,21 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
           {mainView === 'table' && (
             <div className="flex-1 flex min-h-0 bg-white">
               <div className="flex-1 flex flex-col bg-white min-h-0 min-w-0">
-              <div className="px-5 py-3 flex items-center justify-between border-b border-[#E5E6EB] shrink-0">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 text-[#1D2129] font-bold text-[15px]">{activePlatformName}</div>
+              <div className="px-5 py-3 border-b border-[#E5E6EB] shrink-0 overflow-x-auto overflow-y-hidden customized-scrollbar">
+                <div className="w-max min-w-full flex items-center justify-between gap-6">
+                  <div className="flex items-center gap-4 min-w-max shrink-0">
+                  <div className="flex items-center gap-2 text-[#1D2129] font-bold text-[15px] whitespace-nowrap shrink-0">{activePlatformName}</div>
                   <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] border ${
                     activePlatformData?.authStatus === 'verified'
                       ? 'bg-green-50 text-green-600 border-green-100'
                       : activePlatformData?.authStatus === 'mismatch'
                         ? 'bg-red-50 text-red-600 border-red-100'
                         : 'bg-gray-100 text-[#86909C] border-gray-200'
-                  }`}>
+                  } whitespace-nowrap shrink-0`}>
                     {activePlatformData?.authStatus === 'verified' ? <CheckCircle2 size={12} /> : <Lock size={12} />}
                     {activePlatformData?.authStatus === 'verified' ? `店铺: ${activePlatformData.detectedName}` : '待校准'}
                   </div>
-                  <button onClick={handleCalibrateActivePlatform} className="text-[12px] text-[#4E5969] hover:text-[#2954FF] px-2 py-0.5 rounded hover:bg-blue-50 border border-[#E5E6EB]">
+                  <button onClick={handleCalibrateActivePlatform} className="text-[12px] text-[#4E5969] hover:text-[#2954FF] px-2 py-0.5 rounded hover:bg-blue-50 border border-[#E5E6EB] whitespace-nowrap shrink-0">
                     校准
                   </button>
                   <div
@@ -1227,13 +1228,13 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         : localApiStatus === 'offline'
                           ? 'bg-amber-50 text-amber-600 border-amber-100'
                           : 'bg-gray-100 text-[#86909C] border-gray-200'
-                    }`}
+                    } whitespace-nowrap shrink-0`}
                   >
                     {localApiStatus === 'online' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
                     {localApiStatus === 'online' ? '本地写回已连接' : localApiStatus === 'offline' ? '本地写回未连接' : '检查写回服务'}
                   </div>
                   {pendingCollectionRequest && (
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100">
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100 whitespace-nowrap shrink-0">
                       <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '本地执行器运行中' : '待本地执行器处理'}: {pendingCollectionRequest.id}
                       <button
                         onClick={copyPendingCollectionPrompt}
@@ -1249,48 +1250,49 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       </button>
                     </div>
                   )}
-                  <div className="h-4 w-px bg-[#E5E6EB]" />
-                  <div className="flex items-center gap-4 border-r border-[#E5E6EB] pr-4">
-                    <button className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] text-[13px] transition-colors">
+                  <div className="h-4 w-px bg-[#E5E6EB] shrink-0" />
+                  <div className="flex items-center gap-4 border-r border-[#E5E6EB] pr-4 min-w-max shrink-0">
+                    <button className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] text-[13px] transition-colors whitespace-nowrap shrink-0">
                       <TableProperties size={14} className="text-[#2954FF]" /> 网格视图
                     </button>
                     <button
                       onClick={() => setTableFilter(tableFilter === 'all' ? 'error' : 'all')}
-                      className={`flex items-center gap-1.5 text-[13px] transition-colors ${tableFilter === 'error' ? 'text-red-500 font-medium' : 'text-[#4E5969] hover:text-[#2954FF]'}`}
+                      className={`flex items-center gap-1.5 text-[13px] transition-colors whitespace-nowrap shrink-0 ${tableFilter === 'error' ? 'text-red-500 font-medium' : 'text-[#4E5969] hover:text-[#2954FF]'}`}
                     >
                       <Filter size={14} /> {tableFilter === 'error' ? '仅看异常' : '筛选'}
                     </button>
                     <button
                       onClick={() => setSortDirection(sortDirection === 'desc' ? 'asc' : 'desc')}
-                      className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] text-[13px] transition-colors"
+                      className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] text-[13px] transition-colors whitespace-nowrap shrink-0"
                     >
                       <ArrowDownUp size={14} /> {sortDirection === 'desc' ? '最新优先' : '最早优先'}
                     </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
+                  </div>
+                <div className="flex items-center gap-3 min-w-max shrink-0">
                   <button
                     onClick={() => deleteRecords(selectedVisibleRecordIds)}
                     disabled={selectedVisibleRecordIds.length === 0}
-                    className={`flex items-center gap-1.5 text-[13px] transition-colors px-3 py-1.5 rounded ${
+                    className={`flex items-center gap-1.5 text-[13px] transition-colors px-3 py-1.5 rounded whitespace-nowrap shrink-0 ${
                       selectedVisibleRecordIds.length > 0 ? 'text-red-500 hover:bg-red-50' : 'text-[#C9CDD4] cursor-not-allowed'
                     }`}
                   >
                     <Trash2 size={14} /> 删除{selectedVisibleRecordIds.length > 0 ? ` ${selectedVisibleRecordIds.length}` : ''}
                   </button>
-                  <button onClick={handleExportRecords} className="flex items-center gap-1.5 text-[#4E5969] hover:bg-[#F2F3F5] text-[13px] transition-colors px-3 py-1.5 rounded">
+                  <button onClick={handleExportRecords} className="flex items-center gap-1.5 text-[#4E5969] hover:bg-[#F2F3F5] text-[13px] transition-colors px-3 py-1.5 rounded whitespace-nowrap shrink-0">
                     <Download size={14} /> 导出
                   </button>
                   <button
                     onClick={handleRunTabbitCollection}
                     disabled={!canRunCollection}
-                    className={`flex items-center gap-1.5 text-[13px] transition-colors px-4 py-1.5 rounded font-medium shadow-sm ${
+                    className={`flex items-center gap-1.5 text-[13px] transition-colors px-4 py-1.5 rounded font-medium shadow-sm whitespace-nowrap shrink-0 ${
                       canRunCollection ? 'bg-[#2954FF] text-white hover:bg-blue-700' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
                     }`}
                   >
                     <Bot size={13} className={isRefreshing ? 'animate-pulse' : ''} />
                     {isRefreshing ? '已生成并复制指令' : (pendingCollectionRequest ? '任务已生成' : (canRunCollection ? '生成采集指令' : '待授权/配置'))}
                   </button>
+                </div>
                 </div>
               </div>
 
