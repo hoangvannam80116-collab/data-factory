@@ -6,9 +6,9 @@
   "scripts": {
     "api": "node server.mjs",
     "dev": "node dev.mjs",
-    "dev:ui": "vite --host 127.0.0.1",
+    "dev:ui": "vite --host 127.0.0.1 --port 5175 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1 --port 4175 --strictPort"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
