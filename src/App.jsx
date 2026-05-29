@@ -642,7 +642,7 @@ export default function App() {
   const applyFieldPreset = (fieldName) => {
     const buildStoreMetricPreset = (name, valueType = '数字文本') => ({
       fieldName: name,
-      prompt: `进入千牛商家工作台首页，找到「店铺数据」区域，读取「${name}」卡片里的当前主数值。只返回${valueType}。`,
+      prompt: `进入千牛商家工作台首页后先刷新页面，等待「店铺数据」模块和「数据更新时间」更新完成，再读取「${name}」卡片里的当前主数值。只返回${valueType}，不要读取昨日值或刷新前旧值。`,
       pagePath: `千牛商家工作台 > 首页 > 店铺数据 > ${name}`,
       clickPath: '左侧导航：首页',
       recognizedPath: `店铺数据 > ${name} > 当前主数值`,
