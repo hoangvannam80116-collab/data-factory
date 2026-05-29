@@ -643,7 +643,7 @@ export default function App() {
       const payload = await response.json();
       if (payload?.ok && Array.isArray(payload.shops) && payload.shops.length > 0) {
         setScannedTabbitShops(payload.shops);
-        setSelectedScannedShopIds(payload.shops.filter(shop => shop.loginStatus !== 'expired').map(shop => shop.scanId));
+        setSelectedScannedShopIds(payload.shops.filter(shop => shop.loginStatus === 'active').map(shop => shop.scanId));
         setScanSource(payload.source || 'runner');
         return;
       }
@@ -689,6 +689,25 @@ export default function App() {
     return [platform.expectedShopName, platform.detectedName, platform.name]
       .filter(Boolean)
       .some(name => scannedNames.has(name.trim()));
+  };
+
+  const getScannedShopStatus = (shop, alreadySynced) => {
+    if (shop.loginStatus !== 'active') {
+      return {
+        label: '需确认',
+        className: 'bg-amber-50 text-amber-600 border-amber-100'
+      };
+    }
+    if (alreadySynced) {
+      return {
+        label: '已同步',
+        className: 'bg-gray-100 text-[#86909C] border-gray-200'
+      };
+    }
+    return {
+      label: '可同步',
+      className: 'bg-green-50 text-green-600 border-green-100'
+    };
   };
 
   const handleSyncScannedShops = () => {
@@ -1949,7 +1968,13 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                 <RefreshCw size={16} className={`text-[#2954FF] ${isScanningTabbit ? 'animate-spin' : ''}`} />
                 扫描 Tabbit 已登录店铺
               </h3>
-              <button onClick={() => setIsAddShopModalOpen(false)} className="text-[#86909C] hover:text-[#1D2129] transition-colors"><X size={16} /></button>
+              <button
+                onClick={() => setIsAddShopModalOpen(false)}
+                aria-label="关闭扫描弹窗"
+                className="text-[#86909C] hover:text-[#1D2129] transition-colors"
+              >
+                <X size={16} />
+              </button>
             </div>
 
             <div className="p-6 space-y-4">
@@ -1979,10 +2004,19 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   {scannedTabbitShops.map(shop => {
                     const alreadySynced = platforms.some(platform => isSameScannedShop(platform, shop));
                     const selected = selectedScannedShopIds.includes(shop.scanId);
+                    const scanStatus = getScannedShopStatus(shop, alreadySynced);
                     return (
-                      <button
+                      <div
                         key={shop.scanId}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => toggleScannedShopSelection(shop.scanId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleScannedShopSelection(shop.scanId);
+                          }
+                        }}
                         className={`w-full grid grid-cols-[44px_1.2fr_1fr_1.4fr_96px] items-center text-left text-[13px] transition-colors ${
                           selected ? 'bg-blue-50/60' : 'bg-white hover:bg-[#F7F8FA]'
                         }`}
@@ -2006,17 +2040,11 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                           <div className="truncate text-[11px] text-[#86909C]">{shop.url}</div>
                         </div>
                         <div className="px-3 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded border text-[11px] ${
-                            alreadySynced
-                              ? 'bg-gray-100 text-[#86909C] border-gray-200'
-                              : shop.loginStatus === 'active'
-                                ? 'bg-green-50 text-green-600 border-green-100'
-                                : 'bg-amber-50 text-amber-600 border-amber-100'
-                          }`}>
-                            {alreadySynced ? '已同步' : shop.loginStatus === 'active' ? '可同步' : '需确认'}
+                          <span className={`inline-flex px-2 py-0.5 rounded border text-[11px] ${scanStatus.className}`}>
+                            {scanStatus.label}
                           </span>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
