@@ -3,9 +3,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  completeCollectionRunFromTabbitPayload,
   createCollectionRun,
   createInitialDataFactoryState,
+  failCollectionRun,
   getShopRules,
+  markCollectionRunStarted,
   normalizeDataFactoryState,
   writeCollectionRecord
 } from './src/dataFactoryModel.js';
@@ -61,6 +64,14 @@ const writeRecord = async (payload) => {
   return { ok: true, record: result.record, updatedAt: nextEnvelope.updatedAt };
 };
 
+const updateRunState = async (updater) => {
+  const envelope = await readStateEnvelope();
+  const result = updater(envelope.state);
+  if (!result.ok) return result;
+  const nextEnvelope = await writeStateEnvelope(result.state);
+  return { ...result, updatedAt: nextEnvelope.updatedAt };
+};
+
 const server = http.createServer(async (request, response) => {
   if (request.method === 'OPTIONS') {
     response.writeHead(204, jsonHeaders);
@@ -112,6 +123,17 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/runner/next') {
+      const envelope = await readStateEnvelope();
+      const shopId = url.searchParams.get('shopId');
+      const runnableStatuses = new Set(['waiting_for_codex']);
+      const run = (envelope.state.collectionRequests || []).find(item => (
+        runnableStatuses.has(item.status) && (!shopId || item.shopId === shopId || item.platformId === shopId)
+      ));
+      send(response, 200, { ok: true, run: run || null });
+      return;
+    }
+
     if (request.method === 'PUT' && url.pathname === '/state') {
       const body = await readJsonBody(request);
       send(response, 200, await writeStateEnvelope(body.state || body));
@@ -128,6 +150,44 @@ const server = http.createServer(async (request, response) => {
       }
       const nextEnvelope = await writeStateEnvelope(result.state);
       send(response, 200, { ok: true, run: result.run, updatedAt: nextEnvelope.updatedAt });
+      return;
+    }
+
+    const runnerStartMatch = url.pathname.match(/^\/runner\/runs\/([^/]+)\/start$/);
+    if (request.method === 'POST' && runnerStartMatch) {
+      const body = await readJsonBody(request);
+      const runId = decodeURIComponent(runnerStartMatch[1]);
+      const result = await updateRunState(state => markCollectionRunStarted(state, {
+        runId,
+        note: body.note
+      }));
+      send(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    const runnerCompleteMatch = url.pathname.match(/^\/runner\/runs\/([^/]+)\/complete$/);
+    if (request.method === 'POST' && runnerCompleteMatch) {
+      const body = await readJsonBody(request);
+      const runId = decodeURIComponent(runnerCompleteMatch[1]);
+      const result = await updateRunState(state => completeCollectionRunFromTabbitPayload(state, {
+        runId,
+        payload: body.payload || body,
+        source: body.source || 'tabbit-bridge-runner'
+      }));
+      send(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    const runnerFailMatch = url.pathname.match(/^\/runner\/runs\/([^/]+)\/fail$/);
+    if (request.method === 'POST' && runnerFailMatch) {
+      const body = await readJsonBody(request);
+      const runId = decodeURIComponent(runnerFailMatch[1]);
+      const result = await updateRunState(state => failCollectionRun(state, {
+        runId,
+        error: body.error,
+        evidence: body.evidence
+      }));
+      send(response, result.ok ? 200 : 400, result);
       return;
     }
 

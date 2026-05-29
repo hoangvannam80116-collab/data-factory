@@ -43,6 +43,10 @@ data-factory-state.json    演示状态与采集记录
 - `GET /state`：读取当前状态
 - `PUT /state`：整体覆盖状态
 - `POST /write-record`：写入一条采集记录，并同步更新已配置字段的最新值
+- `GET /runner/next?shopId=taobao`：本地执行器领取下一条等待任务
+- `POST /runner/runs/:id/start`：本地执行器标记任务开始
+- `POST /runner/runs/:id/complete`：本地执行器提交 Tabbit JSON，DataFactory 校验店铺/域名/字段后写表
+- `POST /runner/runs/:id/fail`：本地执行器标记任务失败
 
 `POST /write-record` 示例：
 
@@ -66,6 +70,19 @@ data-factory-state.json    演示状态与采集记录
 3. 由 Codex/Tabbit 按规则去目标后台读取数据。
 4. 通过 `writeRecord` 或 `POST /write-record` 写回结果。
 5. 在表格视图查看最新记录，并导出 CSV。
+
+## Runner 链路
+
+本地 Runner 的最小闭环如下：
+
+1. `POST /collection-runs` 创建采集任务。
+2. `GET /runner/next` 领取任务，并取得 `tabbitPrompt`。
+3. `POST /runner/runs/:id/start` 标记任务运行中。
+4. Runner 把 `tabbitPrompt` 一次性发给 Tabbit Bridge。
+5. Tabbit 必须刷新目标页面、校准店铺名、读取页面显示的「数据更新时间」，再返回 JSON。
+6. `POST /runner/runs/:id/complete` 写回完整 JSON。
+
+`complete` 接口会拒绝缺少 `dataUpdatedAt`、店铺名不匹配、当前 URL 不在允许域名内、字段名未配置的结果。
 
 ## 当前边界
 

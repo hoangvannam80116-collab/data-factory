@@ -144,7 +144,7 @@ export default function App() {
   const fieldModalTask = extractionTasks.find(task => task.id === fieldModal.taskId);
   const readyRuleCount = extractionTasks.filter(task => task.status === 'ready').length;
   const latestCollectionRequest = collectionRequests[0];
-  const pendingCollectionRequest = collectionRequests.find(request => request.status === 'waiting_for_codex');
+  const pendingCollectionRequest = collectionRequests.find(request => ['waiting_for_codex', 'running'].includes(request.status));
   const hasExecutableRules = activePlatformData?.authStatus === 'verified' && readyRuleCount > 0;
   const canRunCollection = hasExecutableRules && !pendingCollectionRequest;
   const canRunFieldModalCollection = fieldModal.open && fieldModal.mode === 'edit' && fieldModalTask?.status === 'ready' && activePlatformData?.authStatus === 'verified' && !pendingCollectionRequest;
@@ -319,7 +319,7 @@ export default function App() {
     setCollectionRequests(requests => {
       let marked = false;
       return requests.map(request => {
-        if (marked || request.status !== 'waiting_for_codex') return request;
+        if (marked || !['waiting_for_codex', 'running'].includes(request.status)) return request;
         marked = true;
         return {
           ...request,
@@ -1095,7 +1095,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   </div>
                   {pendingCollectionRequest && (
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100">
-                      <RefreshCw size={12} className="animate-spin" /> 待本地执行器处理: {pendingCollectionRequest.id}
+                      <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '本地执行器运行中' : '待本地执行器处理'}: {pendingCollectionRequest.id}
                       <button
                         onClick={copyPendingCollectionPrompt}
                         className="ml-1 text-[#2954FF] hover:underline"
@@ -1523,7 +1523,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       </button>
                       {pendingCollectionRequest && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-[#2954FF] border border-blue-100 rounded text-[12px] font-medium">
-                          <RefreshCw size={12} className="animate-spin" /> 待处理: {pendingCollectionRequest.id}
+                          <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '运行中' : '待处理'}: {pendingCollectionRequest.id}
                           <button onClick={copyPendingCollectionPrompt} className="hover:underline">
                             {copiedStates.task ? '已复制' : '复制指令'}
                           </button>
@@ -1567,7 +1567,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         <div className="text-[26px] font-bold text-[#1D2129]">{latestCollectionRequest?.time || latestRecord?.time || '-'}</div>
                         {latestCollectionRequest && (
                           <div className="text-[11px] text-[#86909C] mt-1 truncate">
-                            {latestCollectionRequest.status === 'waiting_for_codex' ? '待本地执行器处理' : latestCollectionRequest.status === 'done' ? '已写回表格' : latestCollectionRequest.status === 'cancelled' ? '已取消' : '执行异常'}
+                            {latestCollectionRequest.status === 'waiting_for_codex' ? '待本地执行器处理' : latestCollectionRequest.status === 'running' ? '本地执行器运行中' : latestCollectionRequest.status === 'done' ? '已写回表格' : latestCollectionRequest.status === 'cancelled' ? '已取消' : '执行异常'}
                           </div>
                         )}
                       </div>

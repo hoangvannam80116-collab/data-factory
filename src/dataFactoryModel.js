@@ -279,6 +279,7 @@ export const createCollectionRun = (state, { shopId, fieldNames } = {}) => {
     expectedShopName: shop.expectedShopName,
     detectedName: shop.detectedName,
     status: 'waiting_for_codex',
+    statusText: '等待本地执行器读取任务并调用 Tabbit。',
     rules,
     instruction: 'Codex 读取 tabbitPrompt 后调用 Tabbit Bridge MCP 执行采集，并通过 DataFactory API/MCP 写回记录。',
     tabbitPrompt: buildTabbitBatchPrompt({ shop, rules })
@@ -294,7 +295,93 @@ export const createCollectionRun = (state, { shopId, fieldNames } = {}) => {
   };
 };
 
-export const writeCollectionRecord = (state, { shopId, shopName, data = {}, status = 'success', source = 'server-api', evidence = '', shopCalibration, currentUrl } = {}) => {
+export const markCollectionRunStarted = (state, { runId, note = '' } = {}) => {
+  const normalized = normalizeDataFactoryState(state);
+  if (!runId) return { ok: false, error: 'run_id_required' };
+
+  let foundRun;
+  const now = Date.now();
+  const collectionRequests = (normalized.collectionRequests || []).map(run => {
+    if (run.id !== runId) return run;
+    foundRun = run;
+    return {
+      ...run,
+      status: 'running',
+      startedAt: now,
+      statusText: note || '本地执行器已接收任务，正在调用 Tabbit。'
+    };
+  });
+
+  if (!foundRun) return { ok: false, error: 'run_not_found', runId };
+  return {
+    ok: true,
+    state: {
+      ...normalized,
+      collectionRequests
+    },
+    run: {
+      ...foundRun,
+      status: 'running',
+      startedAt: now,
+      statusText: note || '本地执行器已接收任务，正在调用 Tabbit。'
+    }
+  };
+};
+
+export const failCollectionRun = (state, { runId, error = 'runner_failed', evidence = '' } = {}) => {
+  const normalized = normalizeDataFactoryState(state);
+  if (!runId) return { ok: false, error: 'run_id_required' };
+
+  let foundRun;
+  const now = Date.now();
+  const collectionRequests = (normalized.collectionRequests || []).map(run => {
+    if (run.id !== runId) return run;
+    foundRun = run;
+    return {
+      ...run,
+      status: 'error',
+      completedAt: now,
+      error,
+      evidence: evidence || run.evidence || error,
+      statusText: '本地执行器返回失败。'
+    };
+  });
+
+  if (!foundRun) return { ok: false, error: 'run_not_found', runId };
+  return { ok: true, state: { ...normalized, collectionRequests } };
+};
+
+export const normalizeTabbitResultPayload = (payload = {}) => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ok: false, error: 'payload_must_be_object' };
+  }
+  if (!payload.dataUpdatedAt?.trim()) {
+    return { ok: false, error: 'data_updated_at_required' };
+  }
+
+  const fieldData = Array.isArray(payload.fields)
+    ? payload.fields.reduce((data, field) => {
+      if (field?.fieldName && field.value !== undefined && field.status !== 'error') {
+        data[field.fieldName] = field.value;
+      }
+      return data;
+    }, {})
+    : {};
+  const directData = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data
+    : {};
+
+  return {
+    ok: true,
+    data: { ...directData, ...fieldData },
+    shopCalibration: payload.shopCalibration,
+    currentUrl: payload.currentUrl,
+    dataUpdatedAt: payload.dataUpdatedAt,
+    evidence: payload.evidence || `Tabbit Bridge 批量采集结果，数据更新时间 ${payload.dataUpdatedAt}`
+  };
+};
+
+export const writeCollectionRecord = (state, { shopId, shopName, runId, data = {}, status = 'success', source = 'server-api', evidence = '', shopCalibration, currentUrl } = {}) => {
   const normalized = normalizeDataFactoryState(state);
   const shop = findShop(normalized, shopId || shopName || normalized.activePlatform);
   if (!shop) return { ok: false, error: 'shop_not_found' };
@@ -338,14 +425,17 @@ export const writeCollectionRecord = (state, { shopId, shopName, data = {}, stat
   let marked = false;
   const collectionRequests = (normalized.collectionRequests || []).map(run => {
     const isSameShop = run.shopId === shop.id || run.platformId === shop.id || run.platformName === shop.name;
-    if (marked || run.status !== 'waiting_for_codex' || !isSameShop) return run;
+    const isTargetRun = runId && run.id === runId;
+    const canCompleteRun = ['waiting_for_codex', 'running'].includes(run.status);
+    if (marked || !canCompleteRun || (!isTargetRun && !isSameShop)) return run;
     marked = true;
     return {
       ...run,
       status: status === 'success' ? 'done' : 'error',
       completedAt: now,
       recordId: record.id,
-      evidence
+      evidence,
+      statusText: status === 'success' ? '采集完成，结果已写入表格。' : '采集完成但包含错误结果。'
     };
   });
 
@@ -372,4 +462,24 @@ export const writeCollectionRecord = (state, { shopId, shopName, data = {}, stat
     },
     record
   };
+};
+
+export const completeCollectionRunFromTabbitPayload = (state, { runId, payload, source = 'tabbit-bridge-runner' } = {}) => {
+  const normalized = normalizeDataFactoryState(state);
+  const run = (normalized.collectionRequests || []).find(item => item.id === runId);
+  if (!run) return { ok: false, error: 'run_not_found', runId };
+
+  const normalizedPayload = normalizeTabbitResultPayload(payload);
+  if (!normalizedPayload.ok) return normalizedPayload;
+
+  return writeCollectionRecord(normalized, {
+    runId,
+    shopId: run.shopId || run.platformId,
+    data: normalizedPayload.data,
+    status: 'success',
+    source,
+    evidence: normalizedPayload.evidence,
+    shopCalibration: normalizedPayload.shopCalibration,
+    currentUrl: normalizedPayload.currentUrl
+  });
 };
