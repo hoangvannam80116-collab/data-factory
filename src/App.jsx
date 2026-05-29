@@ -71,6 +71,9 @@ export default function App() {
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedStates, setCopiedStates] = useState({ key: false, cli: false, mcp: false, task: false });
+  const [isImportResultModalOpen, setIsImportResultModalOpen] = useState(false);
+  const [importResultText, setImportResultText] = useState('');
+  const [importResultError, setImportResultError] = useState('');
 
   const [apiTab, setApiTab] = useState('mcp');
 
@@ -373,6 +376,112 @@ export default function App() {
     return { ok: true, request };
   };
 
+  const writeCollectionResult = ({ data = {}, status = 'success', source = 'tabbit', evidence = '', shopCalibration, currentUrl } = {}) => {
+    if (activePlatformData?.authStatus !== 'verified') {
+      return { ok: false, error: 'platform_not_verified', activePlatformName };
+    }
+    if (shopCalibration) {
+      const detectedName = shopCalibration.detectedShopName?.trim() || '';
+      const expectedName = activePlatformData.expectedShopName?.trim() || activePlatformData.detectedName?.trim() || '';
+      if (shopCalibration.status !== 'verified') {
+        return { ok: false, error: 'shop_calibration_not_verified', activePlatformName, shopCalibration };
+      }
+      if (expectedName && !detectedName) {
+        return { ok: false, error: 'shop_name_missing', activePlatformName, shopCalibration };
+      }
+      if (expectedName && detectedName && detectedName !== expectedName) {
+        return { ok: false, error: 'shop_name_mismatch', activePlatformName, shopCalibration };
+      }
+    }
+    if (currentUrl && !isUrlAllowedForShop(activePlatformData, currentUrl)) {
+      return { ok: false, error: 'current_url_not_allowed', activePlatformName, currentUrl };
+    }
+    if (!hasExecutableRules) {
+      return { ok: false, error: 'no_executable_rules', activePlatformName };
+    }
+    const readyFieldNames = new Set(extractionTasks.filter(task => task.status === 'ready').map(task => task.fieldName));
+    const matchedFields = Object.keys(data).filter(fieldName => readyFieldNames.has(fieldName));
+    if (matchedFields.length === 0) {
+      return { ok: false, error: 'no_matching_ready_field', activePlatformName };
+    }
+    const record = {
+      id: `REC-${Date.now().toString().slice(-6)}`,
+      workspaceId,
+      shopId: activePlatform,
+      time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+      createdAt: Date.now(),
+      platform: activePlatformName,
+      status,
+      source,
+      evidence,
+      data: matchedFields.reduce((matchedData, fieldName) => {
+        matchedData[fieldName] = data[fieldName];
+        return matchedData;
+      }, {})
+    };
+    setHistoryRecords(records => [record, ...records]);
+    markPendingCollectionRequest({
+      nextStatus: status === 'success' ? 'done' : 'error',
+      recordId: record.id,
+      evidence
+    });
+    setExtractionTasks(tasks => tasks.map(task => {
+      if (!readyFieldNames.has(task.fieldName) || data[task.fieldName] === undefined) return task;
+      return {
+        ...task,
+        value: data[task.fieldName],
+        lastRun: '刚刚',
+        confidence: Math.max(task.confidence || 90, 92),
+        status: 'ready'
+      };
+    }));
+    setMainView('table');
+    return { ok: true, record };
+  };
+
+  const openImportResultModal = () => {
+    setImportResultText('');
+    setImportResultError('');
+    setIsImportResultModalOpen(true);
+  };
+
+  const handleImportCollectionResult = () => {
+    let payload;
+    try {
+      payload = JSON.parse(importResultText.trim());
+    } catch {
+      setImportResultError('JSON 格式不正确，请粘贴 Tabbit 返回的完整 JSON。');
+      return;
+    }
+
+    const fieldData = Array.isArray(payload.fields)
+      ? payload.fields.reduce((data, field) => {
+        if (field?.fieldName && field.value !== undefined && field.status !== 'error') {
+          data[field.fieldName] = field.value;
+        }
+        return data;
+      }, {})
+      : {};
+    const directData = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : {};
+    const result = writeCollectionResult({
+      data: { ...directData, ...fieldData },
+      status: 'success',
+      source: 'tabbit-bridge-json-import',
+      evidence: payload.evidence || `Tabbit Bridge 批量采集结果${payload.dataUpdatedAt ? `，数据更新时间 ${payload.dataUpdatedAt}` : ''}`,
+      shopCalibration: payload.shopCalibration,
+      currentUrl: payload.currentUrl
+    });
+
+    if (!result.ok) {
+      setImportResultError(`写入失败: ${result.error}`);
+      return;
+    }
+
+    setIsImportResultModalOpen(false);
+    setImportResultText('');
+    setImportResultError('');
+  };
+
   useEffect(() => {
     window.__DATA_FACTORY_MVP__ = {
       readState: () => ({
@@ -403,68 +512,7 @@ export default function App() {
         calibratePlatform(platformId, { detectedName, url });
         return { ok: true, platformId, ...calibration };
       },
-      writeRecord: ({ data = {}, status = 'success', source = 'tabbit', evidence = '', shopCalibration, currentUrl } = {}) => {
-        if (activePlatformData?.authStatus !== 'verified') {
-          return { ok: false, error: 'platform_not_verified', activePlatformName };
-        }
-        if (shopCalibration) {
-          const detectedName = shopCalibration.detectedShopName?.trim() || '';
-          const expectedName = activePlatformData.expectedShopName?.trim() || activePlatformData.detectedName?.trim() || '';
-          if (shopCalibration.status !== 'verified') {
-            return { ok: false, error: 'shop_calibration_not_verified', activePlatformName, shopCalibration };
-          }
-          if (expectedName && !detectedName) {
-            return { ok: false, error: 'shop_name_missing', activePlatformName, shopCalibration };
-          }
-          if (expectedName && detectedName && detectedName !== expectedName) {
-            return { ok: false, error: 'shop_name_mismatch', activePlatformName, shopCalibration };
-          }
-        }
-        if (currentUrl && !isUrlAllowedForShop(activePlatformData, currentUrl)) {
-          return { ok: false, error: 'current_url_not_allowed', activePlatformName, currentUrl };
-        }
-        if (!hasExecutableRules) {
-          return { ok: false, error: 'no_executable_rules', activePlatformName };
-        }
-        const readyFieldNames = new Set(extractionTasks.filter(task => task.status === 'ready').map(task => task.fieldName));
-        const matchedFields = Object.keys(data).filter(fieldName => readyFieldNames.has(fieldName));
-        if (matchedFields.length === 0) {
-          return { ok: false, error: 'no_matching_ready_field', activePlatformName };
-        }
-        const record = {
-          id: `REC-${Date.now().toString().slice(-6)}`,
-          workspaceId,
-          shopId: activePlatform,
-          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-          createdAt: Date.now(),
-          platform: activePlatformName,
-          status,
-          source,
-          evidence,
-          data: matchedFields.reduce((matchedData, fieldName) => {
-            matchedData[fieldName] = data[fieldName];
-            return matchedData;
-          }, {})
-        };
-        setHistoryRecords(records => [record, ...records]);
-        markPendingCollectionRequest({
-          nextStatus: status === 'success' ? 'done' : 'error',
-          recordId: record.id,
-          evidence
-        });
-        setExtractionTasks(tasks => tasks.map(task => {
-          if (!readyFieldNames.has(task.fieldName) || data[task.fieldName] === undefined) return task;
-          return {
-            ...task,
-            value: data[task.fieldName],
-            lastRun: '刚刚',
-            confidence: Math.max(task.confidence || 90, 92),
-            status: 'ready'
-          };
-        }));
-        setMainView('table');
-        return { ok: true, record };
-      },
+      writeRecord: writeCollectionResult,
       writeFieldResult: ({ fieldName, ruleId, value, status = 'success', source = 'tabbit', evidence = '' } = {}) => {
         const rule = extractionTasks.find(task => (
           ruleId !== undefined ? task.id === ruleId : task.fieldName === fieldName
@@ -1008,6 +1056,9 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       >
                         {copiedStates.task ? '已复制' : '复制指令'}
                       </button>
+                      <button onClick={openImportResultModal} className="text-[#2954FF] hover:underline">
+                        导入结果
+                      </button>
                       <button onClick={cancelPendingCollectionRequest} className="text-[#86909C] hover:text-red-500">
                         取消
                       </button>
@@ -1430,6 +1481,9 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                           <button onClick={copyPendingCollectionPrompt} className="hover:underline">
                             {copiedStates.task ? '已复制' : '复制指令'}
                           </button>
+                          <button onClick={openImportResultModal} className="hover:underline">
+                            导入结果
+                          </button>
                           <button onClick={cancelPendingCollectionRequest} className="text-[#86909C] hover:text-red-500">
                             取消
                           </button>
@@ -1791,6 +1845,46 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
             <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
               <button onClick={() => setIsAddShopModalOpen(false)} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors">取消</button>
               <button onClick={handleAddShopSubmit} disabled={!newShopForm.name.trim() || !newShopForm.expectedShopName.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">保存店铺</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isImportResultModalOpen && (
+        <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded shadow-lg w-full max-w-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
+              <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2">
+                <Bot size={16} className="text-[#2954FF]" />
+                导入 Tabbit 采集结果
+              </h3>
+              <button onClick={() => setIsImportResultModalOpen(false)} className="text-[#86909C] hover:text-[#1D2129] transition-colors"><X size={16} /></button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="text-[13px] text-[#4E5969] leading-relaxed">
+                粘贴 Tabbit 返回的 JSON。系统会校验店铺名、允许域名和字段名，只把已配置字段写入当前店铺表格。
+              </div>
+              <textarea
+                autoFocus
+                value={importResultText}
+                onChange={(e) => {
+                  setImportResultText(e.target.value);
+                  setImportResultError('');
+                }}
+                placeholder='{"shopCalibration":{"expectedShopName":"南苏科技","detectedShopName":"南苏科技","status":"verified"},"currentUrl":"https://myseller.taobao.com/home.htm/QnworkbenchHome/","fields":[{"fieldName":"支付金额","value":"4,160","status":"success"}]}'
+                className="w-full min-h-[260px] border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] leading-relaxed font-mono focus:border-[#2954FF] focus:outline-none transition-colors resize-none"
+              />
+              {importResultError && (
+                <div className="bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">
+                  {importResultError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
+              <button onClick={() => setIsImportResultModalOpen(false)} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors">取消</button>
+              <button onClick={handleImportCollectionResult} disabled={!importResultText.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">写入表格</button>
             </div>
           </div>
         </div>
