@@ -38,7 +38,8 @@ const demoTabbitShops = [
     url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
     tabTitle: '千牛商家工作台',
-    loginStatus: 'active'
+    loginStatus: 'active',
+    autoSyncTime: '09:00'
   },
   {
     scanId: 'tabbit-pdd-demo',
@@ -48,7 +49,8 @@ const demoTabbitShops = [
     url: PLATFORM_IDENTITY_DEFAULTS.pdd.url,
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
     tabTitle: '拼多多商家后台',
-    loginStatus: 'active'
+    loginStatus: 'active',
+    autoSyncTime: '09:30'
   },
   {
     scanId: 'tabbit-jd-demo',
@@ -58,7 +60,8 @@ const demoTabbitShops = [
     url: PLATFORM_IDENTITY_DEFAULTS.jd.url,
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
     tabTitle: '京麦工作台',
-    loginStatus: 'needs_attention'
+    loginStatus: 'needs_attention',
+    autoSyncTime: '10:00'
   }
 ];
 

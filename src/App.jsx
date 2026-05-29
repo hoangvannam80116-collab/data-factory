@@ -63,7 +63,8 @@ export default function App() {
       url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
       allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
       tabTitle: '千牛商家工作台',
-      loginStatus: 'active'
+      loginStatus: 'active',
+      autoSyncTime: '09:00'
     },
     {
       scanId: 'tabbit-pdd-demo',
@@ -73,7 +74,8 @@ export default function App() {
       url: PLATFORM_IDENTITY_DEFAULTS.pdd.url,
       allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
       tabTitle: '拼多多商家后台',
-      loginStatus: 'active'
+      loginStatus: 'active',
+      autoSyncTime: '09:30'
     },
     {
       scanId: 'tabbit-jd-demo',
@@ -83,7 +85,8 @@ export default function App() {
       url: PLATFORM_IDENTITY_DEFAULTS.jd.url,
       allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
       tabTitle: '京麦工作台',
-      loginStatus: 'needs_attention'
+      loginStatus: 'needs_attention',
+      autoSyncTime: '10:00'
     }
   ];
   const [workspaceId] = useState(DEFAULT_WORKSPACE_ID);
@@ -96,6 +99,11 @@ export default function App() {
   const [isAddShopModalOpen, setIsAddShopModalOpen] = useState(false);
   const [scannedTabbitShops, setScannedTabbitShops] = useState(demoScannedTabbitShops);
   const [selectedScannedShopIds, setSelectedScannedShopIds] = useState(['tabbit-taobao-nansu']);
+  const [scannedShopSyncTimes, setScannedShopSyncTimes] = useState({
+    'tabbit-taobao-nansu': '09:00',
+    'tabbit-pdd-demo': '09:30',
+    'tabbit-jd-demo': '10:00'
+  });
   const [isScanningTabbit, setIsScanningTabbit] = useState(false);
   const [scanSource, setScanSource] = useState('demo');
   const [newShopForm, setNewShopForm] = useState({
@@ -638,12 +646,17 @@ export default function App() {
 
   const scanTabbitShops = async () => {
     setIsScanningTabbit(true);
+    const buildSyncTimeMap = (shops) => Object.fromEntries(shops.map(shop => {
+      const existingShop = platforms.find(platform => isSameScannedShop(platform, shop));
+      return [shop.scanId, shop.autoSyncTime || existingShop?.autoSyncTime || '09:00'];
+    }));
     try {
       const response = await fetch(`${apiBase}/runner/tabbit-shops`, { cache: 'no-store' });
       const payload = await response.json();
       if (payload?.ok && Array.isArray(payload.shops) && payload.shops.length > 0) {
         setScannedTabbitShops(payload.shops);
         setSelectedScannedShopIds(payload.shops.filter(shop => shop.loginStatus === 'active').map(shop => shop.scanId));
+        setScannedShopSyncTimes(buildSyncTimeMap(payload.shops));
         setScanSource(payload.source || 'runner');
         return;
       }
@@ -651,6 +664,7 @@ export default function App() {
     } catch {
       setScannedTabbitShops(demoScannedTabbitShops);
       setSelectedScannedShopIds(demoScannedTabbitShops.filter(shop => shop.loginStatus === 'active').map(shop => shop.scanId));
+      setScannedShopSyncTimes(buildSyncTimeMap(demoScannedTabbitShops));
       setScanSource('demo');
     } finally {
       setIsScanningTabbit(false);
@@ -666,6 +680,10 @@ export default function App() {
     setSelectedScannedShopIds(ids => (
       ids.includes(scanId) ? ids.filter(id => id !== scanId) : [...ids, scanId]
     ));
+  };
+
+  const updateScannedShopSyncTime = (scanId, autoSyncTime) => {
+    setScannedShopSyncTimes(times => ({ ...times, [scanId]: autoSyncTime }));
   };
 
   const buildRulesForScannedShop = (shopId, platformType) => {
@@ -732,6 +750,8 @@ export default function App() {
         detectedName: shop.loginStatus === 'active' ? shop.detectedName : '',
         detectedFrom: 'tabbit-scan',
         tabbitTabTitle: shop.tabTitle,
+        autoSyncEnabled: true,
+        autoSyncTime: scannedShopSyncTimes[shop.scanId] || existingShop?.autoSyncTime || shop.autoSyncTime || '09:00',
         lastScannedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false })
       };
 
@@ -1962,7 +1982,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
 
       {isAddShopModalOpen && (
         <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded shadow-lg w-full max-w-3xl overflow-hidden">
+          <div className="bg-white rounded shadow-lg w-full max-w-4xl overflow-hidden">
             <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
               <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2">
                 <RefreshCw size={16} className={`text-[#2954FF] ${isScanningTabbit ? 'animate-spin' : ''}`} />
@@ -1993,11 +2013,12 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
               </div>
 
               <div className="border border-[#E5E6EB] rounded overflow-hidden">
-                <div className="grid grid-cols-[44px_1.2fr_1fr_1.4fr_96px] bg-[#F7F8FA] border-b border-[#E5E6EB] text-[12px] font-medium text-[#4E5969]">
+                <div className="grid grid-cols-[44px_1.15fr_0.75fr_1.35fr_150px_96px] bg-[#F7F8FA] border-b border-[#E5E6EB] text-[12px] font-medium text-[#4E5969]">
                   <div className="px-3 py-2" />
                   <div className="px-3 py-2">店铺</div>
                   <div className="px-3 py-2">平台</div>
                   <div className="px-3 py-2">Tabbit 页面</div>
+                  <div className="px-3 py-2">每日同步时间</div>
                   <div className="px-3 py-2">状态</div>
                 </div>
                 <div className="divide-y divide-[#E5E6EB] max-h-[320px] overflow-y-auto customized-scrollbar">
@@ -2017,7 +2038,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                             toggleScannedShopSelection(shop.scanId);
                           }
                         }}
-                        className={`w-full grid grid-cols-[44px_1.2fr_1fr_1.4fr_96px] items-center text-left text-[13px] transition-colors ${
+                        className={`w-full grid grid-cols-[44px_1.15fr_0.75fr_1.35fr_150px_96px] items-center text-left text-[13px] transition-colors ${
                           selected ? 'bg-blue-50/60' : 'bg-white hover:bg-[#F7F8FA]'
                         }`}
                       >
@@ -2038,6 +2059,16 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         <div className="px-3 py-3 min-w-0">
                           <div className="truncate text-[#4E5969]">{shop.tabTitle}</div>
                           <div className="truncate text-[11px] text-[#86909C]">{shop.url}</div>
+                        </div>
+                        <div className="px-3 py-3">
+                          <input
+                            type="time"
+                            value={scannedShopSyncTimes[shop.scanId] || shop.autoSyncTime || '09:00'}
+                            onChange={(e) => updateScannedShopSyncTime(shop.scanId, e.target.value)}
+                            onInput={(e) => updateScannedShopSyncTime(shop.scanId, e.currentTarget.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-[112px] border border-[#E5E6EB] bg-white rounded px-2 py-1 text-[12px] text-[#1D2129] focus:border-[#2954FF] focus:outline-none"
+                          />
                         </div>
                         <div className="px-3 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded border text-[11px] ${scanStatus.className}`}>

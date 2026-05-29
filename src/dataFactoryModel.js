@@ -61,7 +61,8 @@ export const INITIAL_PLATFORMS = [
     url: 'https://myseller.taobao.com/home.htm/QnworkbenchHome/',
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
     authStatus: 'verified',
-    detectedName: '南苏科技'
+    detectedName: '南苏科技',
+    autoSyncTime: '09:00'
   },
   {
     id: 'pdd',
@@ -72,7 +73,8 @@ export const INITIAL_PLATFORMS = [
     url: 'https://mms.pinduoduo.com/',
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
     authStatus: 'unauthorized',
-    detectedName: ''
+    detectedName: '',
+    autoSyncTime: '09:00'
   },
   {
     id: 'jd',
@@ -83,7 +85,8 @@ export const INITIAL_PLATFORMS = [
     url: 'https://shop.jd.com/home',
     allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
     authStatus: 'unauthorized',
-    detectedName: ''
+    detectedName: '',
+    autoSyncTime: '09:00'
   }
 ];
 
