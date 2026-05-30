@@ -189,9 +189,20 @@ export default function App() {
   const readyRuleCount = extractionTasks.filter(task => task.status === 'ready').length;
   const latestCollectionRequest = collectionRequests[0];
   const pendingCollectionRequest = collectionRequests.find(request => ['waiting_for_codex', 'running'].includes(request.status));
+  const latestFailedCollectionRequest = collectionRequests.find(request => request.status === 'error');
   const hasExecutableRules = activePlatformData?.authStatus === 'verified' && readyRuleCount > 0;
-  const canRunCollection = hasExecutableRules && !pendingCollectionRequest;
-  const canRunFieldModalCollection = fieldModal.open && fieldModal.mode === 'edit' && fieldModalTask?.status === 'ready' && activePlatformData?.authStatus === 'verified' && !pendingCollectionRequest;
+  const isLocalWritebackOnline = localApiStatus === 'online';
+  const canRunCollection = hasExecutableRules && isLocalWritebackOnline && !pendingCollectionRequest;
+  const canRunFieldModalCollection = fieldModal.open && fieldModal.mode === 'edit' && fieldModalTask?.status === 'ready' && activePlatformData?.authStatus === 'verified' && isLocalWritebackOnline && !pendingCollectionRequest;
+  const collectionActionLabel = isRefreshing
+    ? '已生成并复制指令'
+    : pendingCollectionRequest
+      ? '任务已生成'
+      : !hasExecutableRules
+        ? '待授权/配置'
+        : !isLocalWritebackOnline
+          ? '本地写回未连接'
+          : '生成采集指令';
   const platformLabels = { taobao: '淘宝', pdd: '拼多多', jd: '京东', other: '其他' };
   const visibleRecordIds = currentPlatformRecords.map(record => record.id);
   const selectedVisibleRecordIds = selectedRecordIds.filter(id => visibleRecordIds.includes(id));
@@ -250,6 +261,19 @@ export default function App() {
     historyRecords,
     collectionRequests
   });
+
+  const persistStateSnapshot = async (state) => {
+    const response = await fetch(`${apiBase}/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state })
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) throw new Error(payload?.error || 'state_persist_failed');
+    setLocalApiStatus('online');
+    if (payload.updatedAt) lastServerUpdatedAtRef.current = payload.updatedAt;
+    return payload;
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -318,14 +342,8 @@ export default function App() {
       console.warn('Failed to persist DataFactory state', error);
     }
 
-    fetch(`${apiBase}/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: persistedState })
-    })
-      .then(response => response.json())
+    persistStateSnapshot(persistedState)
       .then(payload => {
-        setLocalApiStatus('online');
         if (payload?.updatedAt) lastServerUpdatedAtRef.current = payload.updatedAt;
       })
       .catch(error => {
@@ -363,7 +381,7 @@ export default function App() {
     setCollectionRequests(requests => {
       let marked = false;
       return requests.map(request => {
-        if (marked || !['waiting_for_codex', 'running'].includes(request.status)) return request;
+        if (marked || !['waiting_for_codex', 'running', 'error'].includes(request.status)) return request;
         marked = true;
         return {
           ...request,
@@ -390,6 +408,45 @@ export default function App() {
     )));
   };
 
+  const retryFailedCollectionRequest = async () => {
+    if (!latestFailedCollectionRequest) return;
+    const nextRequests = collectionRequests.map(request => {
+      if (request.id !== latestFailedCollectionRequest.id) return request;
+      const { completedAt, error, recordId, ...rest } = request;
+      return {
+        ...rest,
+        status: 'waiting_for_codex',
+        statusText: '已重新排队，等待本地执行器调用 Tabbit。',
+        evidence: '用户已重新排队该采集任务。'
+      };
+    });
+    setCollectionRequests(nextRequests);
+    try {
+      await persistStateSnapshot({
+        ...buildPersistedState(),
+        collectionRequests: nextRequests
+      });
+    } catch (error) {
+      setLocalApiStatus('offline');
+      markCollectionRequestDispatchFailed(latestFailedCollectionRequest.id, error);
+    }
+  };
+
+  const dismissFailedCollectionRequest = () => {
+    if (!latestFailedCollectionRequest) return;
+    setCollectionRequests(requests => requests.map(request => (
+      request.id === latestFailedCollectionRequest.id
+        ? {
+          ...request,
+          status: 'cancelled',
+          completedAt: Date.now(),
+          statusText: '已忽略该失败任务。',
+          evidence: request.evidence || '用户忽略失败任务。'
+        }
+        : request
+    )));
+  };
+
   const buildPromptForCollectionRequest = (request) => {
     if (!request) return '';
     if (request.tabbitPrompt?.trim()) return request.tabbitPrompt;
@@ -407,10 +464,14 @@ export default function App() {
     return buildTabbitBatchPrompt({ shop: requestShop, rules: requestRules });
   };
 
-  const copyPendingCollectionPrompt = () => {
-    const prompt = buildPromptForCollectionRequest(pendingCollectionRequest);
+  const copyCollectionPrompt = (request) => {
+    const prompt = buildPromptForCollectionRequest(request);
     if (!prompt) return;
     handleCopy('task', prompt);
+  };
+
+  const copyPendingCollectionPrompt = () => {
+    copyCollectionPrompt(pendingCollectionRequest);
   };
 
   const createCollectionRequest = ({ fieldNames } = {}) => {
@@ -1023,11 +1084,39 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
     setTimeout(() => setCopiedStates(prev => ({ ...prev, [type]: false })), 2000);
   };
 
-  const handleRunTabbitCollection = () => {
+  const persistNewCollectionRequest = async (request) => {
+    await persistStateSnapshot({
+      ...buildPersistedState(),
+      collectionRequests: [request, ...collectionRequests]
+    });
+  };
+
+  const markCollectionRequestDispatchFailed = (requestId, error) => {
+    setCollectionRequests(requests => requests.map(request => (
+      request.id === requestId
+        ? {
+          ...request,
+          status: 'error',
+          completedAt: Date.now(),
+          error: error.message || 'local_writeback_offline',
+          evidence: '生成任务后同步到本地写回服务失败，请确认 npm run dev 正在运行。'
+        }
+        : request
+    )));
+  };
+
+  const handleRunTabbitCollection = async () => {
     if (isRefreshing) return;
     if (!canRunCollection) return;
     const result = createCollectionRequest();
     if (!result.ok) return;
+    try {
+      await persistNewCollectionRequest(result.request);
+    } catch (error) {
+      setLocalApiStatus('offline');
+      markCollectionRequestDispatchFailed(result.request.id, error);
+      return;
+    }
     if (result.request?.tabbitPrompt) {
       handleCopy('task', result.request.tabbitPrompt);
     }
@@ -1035,10 +1124,17 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  const handleRunFieldModalCollection = () => {
+  const handleRunFieldModalCollection = async () => {
     if (isRefreshing || !canRunFieldModalCollection) return;
     const result = createCollectionRequest({ fieldNames: [fieldModalTask.fieldName] });
     if (!result.ok) return;
+    try {
+      await persistNewCollectionRequest(result.request);
+    } catch (error) {
+      setLocalApiStatus('offline');
+      markCollectionRequestDispatchFailed(result.request.id, error);
+      return;
+    }
     setIsRefreshing(true);
     setTimeout(() => setIsRefreshing(false), 500);
   };
@@ -1289,6 +1385,26 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       </button>
                     </div>
                   )}
+                  {!pendingCollectionRequest && latestFailedCollectionRequest && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-red-50 text-red-600 border border-red-100 whitespace-nowrap shrink-0">
+                      <AlertTriangle size={12} />
+                      <span className="max-w-[260px] truncate" title={latestFailedCollectionRequest.evidence || latestFailedCollectionRequest.error || ''}>
+                        采集失败: {latestFailedCollectionRequest.id}
+                      </span>
+                      <button onClick={retryFailedCollectionRequest} className="ml-1 text-red-600 hover:underline">
+                        重试
+                      </button>
+                      <button onClick={() => copyCollectionPrompt(latestFailedCollectionRequest)} className="text-red-600 hover:underline">
+                        {copiedStates.task ? '已复制' : '复制指令'}
+                      </button>
+                      <button onClick={openImportResultModal} className="text-red-600 hover:underline">
+                        导入结果
+                      </button>
+                      <button onClick={dismissFailedCollectionRequest} className="text-[#86909C] hover:text-red-500">
+                        忽略
+                      </button>
+                    </div>
+                  )}
                   <div className="h-4 w-px bg-[#E5E6EB] shrink-0" />
                   <div className="flex items-center gap-4 border-r border-[#E5E6EB] pr-4 min-w-max shrink-0">
                     <button className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] text-[13px] transition-colors whitespace-nowrap shrink-0">
@@ -1329,7 +1445,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     }`}
                   >
                     <Bot size={13} className={isRefreshing ? 'animate-pulse' : ''} />
-                    {isRefreshing ? '已生成并复制指令' : (pendingCollectionRequest ? '任务已生成' : (canRunCollection ? '生成采集指令' : '待授权/配置'))}
+                    {collectionActionLabel}
                   </button>
                 </div>
                 </div>
@@ -1649,7 +1765,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         canRunFieldModalCollection ? 'bg-[#2954FF] hover:bg-blue-700 text-white' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
                       }`}
                     >
-                      <PlaySquare size={15} /> {pendingCollectionRequest ? '已有任务待本地执行器处理' : (fieldModal.mode === 'create' ? '保存后可测试' : (canRunFieldModalCollection ? '测试当前字段采集' : '待授权/配置后测试'))}
+                      <PlaySquare size={15} /> {pendingCollectionRequest ? '已有任务待本地执行器处理' : (fieldModal.mode === 'create' ? '保存后可测试' : (!hasExecutableRules ? '待授权/配置后测试' : !isLocalWritebackOnline ? '本地写回未连接' : '测试当前字段采集'))}
                     </button>
                     <button
                       onClick={handleFieldModalConfirm}
@@ -1715,6 +1831,23 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                           </button>
                         </div>
                       )}
+                      {!pendingCollectionRequest && latestFailedCollectionRequest && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-600 border border-red-100 rounded text-[12px] font-medium">
+                          <AlertTriangle size={12} /> 采集失败: {latestFailedCollectionRequest.id}
+                          <button onClick={retryFailedCollectionRequest} className="hover:underline">
+                            重试
+                          </button>
+                          <button onClick={() => copyCollectionPrompt(latestFailedCollectionRequest)} className="hover:underline">
+                            {copiedStates.task ? '已复制' : '复制指令'}
+                          </button>
+                          <button onClick={openImportResultModal} className="hover:underline">
+                            导入结果
+                          </button>
+                          <button onClick={dismissFailedCollectionRequest} className="text-[#86909C] hover:text-red-500">
+                            忽略
+                          </button>
+                        </div>
+                      )}
                       <button
                         onClick={handleRunTabbitCollection}
                         disabled={!canRunCollection}
@@ -1723,7 +1856,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                         }`}
                       >
                         <Bot size={14} />
-                        {isRefreshing ? '已生成并复制指令' : (pendingCollectionRequest ? '任务已生成' : (canRunCollection ? '生成采集指令' : '待授权/配置'))}
+                        {collectionActionLabel}
                       </button>
                     </div>
                   </div>
