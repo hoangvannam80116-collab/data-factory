@@ -1,11 +1,14 @@
 import { spawn } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const children = [];
 let shuttingDown = false;
+const projectRoot = dirname(fileURLToPath(import.meta.url));
 
 const run = (name, command, args) => {
   const child = spawn(command, args, {
-    cwd: process.cwd(),
+    cwd: projectRoot,
     env: process.env,
     stdio: 'inherit'
   });
@@ -30,5 +33,10 @@ const shutdown = (code = 0) => {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
-run('DataFactory API', 'npm', ['run', 'api']);
-run('DataFactory UI', 'npm', ['run', 'dev:ui']);
+run('DataFactory API', process.execPath, [join(projectRoot, 'server.mjs')]);
+run('DataFactory UI', process.execPath, [
+  join(projectRoot, 'node_modules', 'vite', 'bin', 'vite.js'),
+  '--host', '127.0.0.1',
+  '--port', '5175',
+  '--strictPort'
+]);

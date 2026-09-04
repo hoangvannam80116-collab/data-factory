@@ -1,14 +1,22 @@
 {
-  "name": "data-factory-demo",
-  "version": "0.1.0",
+  "name": "datafactory-local",
+  "version": "0.2.0",
+  "description": "本地电商多店铺数据采集工作台",
   "private": true,
   "type": "module",
   "scripts": {
     "api": "node server.mjs",
     "dev": "node dev.mjs",
     "dev:ui": "vite --host 127.0.0.1 --port 5175 --strictPort",
+    "doctor": "node scripts/doctor.mjs",
+    "check:buttons": "node scripts/check-button-contracts.mjs",
+    "release:check": "npm run doctor && npm run check:buttons && npm test && npm run build",
+    "test": "node --test tests/*.test.mjs",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4175 --strictPort"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
@@ -18,5 +26,9 @@
     "react-dom": "^19.2.0",
     "lucide-react": "^0.556.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "autoprefixer": "10.4.21",
+    "postcss": "8.5.28",
+    "tailwindcss": "3.4.17"
+  }
 }

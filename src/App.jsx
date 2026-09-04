@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { ButtonContractAuditor } from './buttonContractAuditor.js';
 import {
   Store,
   Database,
@@ -21,21 +22,20 @@ import {
   GripVertical,
   AlignLeft,
   TableProperties,
-  ToggleRight,
   PlaySquare,
   Save,
   Lock,
   AlertTriangle,
   Bot,
-  Layers,
   ImagePlus,
-  Wand2,
-  Route,
   MessageSquare,
   ClipboardList,
   Gauge,
   Camera,
-  BarChart3
+  BarChart3,
+  Clock,
+  ShieldCheck,
+  ArchiveRestore
 } from 'lucide-react';
 import {
   DEFAULT_USER_ID,
@@ -44,7 +44,8 @@ import {
   INITIAL_PLATFORMS,
   INITIAL_TASK_RULES_BY_PLATFORM,
   PLATFORM_IDENTITY_DEFAULTS,
-  buildTabbitBatchPrompt,
+  buildEgoBatchPrompt,
+  extractHostname,
   inferAllowedDomains,
   isUrlAllowedForShop,
   normalizeAllowedDomains,
@@ -53,74 +54,49 @@ import {
 
 export default function App() {
   const storageKey = 'data-factory-mvp-state-v2';
-  const apiBase = 'http://127.0.0.1:5180';
-  const demoScannedTabbitShops = [
-    {
-      scanId: 'tabbit-taobao-nansu',
-      platformType: 'taobao',
-      detectedName: '南苏科技',
-      displayName: '南苏科技',
-      url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
-      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains,
-      tabTitle: '千牛商家工作台',
-      loginStatus: 'active',
-      autoSyncTime: '09:00'
-    },
-    {
-      scanId: 'tabbit-pdd-demo',
-      platformType: 'pdd',
-      detectedName: '拼多多专卖店',
-      displayName: '拼多多专卖店',
-      url: PLATFORM_IDENTITY_DEFAULTS.pdd.url,
-      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.pdd.allowedDomains,
-      tabTitle: '拼多多商家后台',
-      loginStatus: 'active',
-      autoSyncTime: '09:30'
-    },
-    {
-      scanId: 'tabbit-jd-demo',
-      platformType: 'jd',
-      detectedName: '京东旗舰店',
-      displayName: '京东旗舰店',
-      url: PLATFORM_IDENTITY_DEFAULTS.jd.url,
-      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.jd.allowedDomains,
-      tabTitle: '京麦工作台',
-      loginStatus: 'needs_attention',
-      autoSyncTime: '10:00'
-    }
-  ];
+  const apiBase = 'http://127.0.0.1:5181';
   const [workspaceId] = useState(DEFAULT_WORKSPACE_ID);
   const [userId] = useState(DEFAULT_USER_ID);
   const [mainView, setMainView] = useState('dashboard');
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [globalSearchMessage, setGlobalSearchMessage] = useState('');
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const [platforms, setPlatforms] = useState(INITIAL_PLATFORMS);
-  const [activePlatform, setActivePlatform] = useState('taobao');
+  const [trashedShops, setTrashedShops] = useState([]);
+  const [activePlatform, setActivePlatform] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(storageKey) || 'null')?.activePlatform || '';
+    } catch {
+      return '';
+    }
+  });
 
   const [isAddShopModalOpen, setIsAddShopModalOpen] = useState(false);
-  const [scannedTabbitShops, setScannedTabbitShops] = useState(demoScannedTabbitShops);
-  const [selectedScannedShopIds, setSelectedScannedShopIds] = useState(['tabbit-taobao-nansu']);
-  const [scannedShopSyncTimes, setScannedShopSyncTimes] = useState({
-    'tabbit-taobao-nansu': '09:00',
-    'tabbit-pdd-demo': '09:30',
-    'tabbit-jd-demo': '10:00'
-  });
-  const [isScanningTabbit, setIsScanningTabbit] = useState(false);
-  const [scanSource, setScanSource] = useState('demo');
+  const [isEgoBindingModalOpen, setIsEgoBindingModalOpen] = useState(false);
+  const [isBindingEgo, setIsBindingEgo] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [egoResumeRequired, setEgoResumeRequired] = useState(false);
+  const [addShopError, setAddShopError] = useState('');
+  const [isSavingShop, setIsSavingShop] = useState(false);
+  const [shopPendingTrash, setShopPendingTrash] = useState(null);
+  const [shopContextMenu, setShopContextMenu] = useState(null);
+  const [shopMutationError, setShopMutationError] = useState('');
+  const [shopMutationSuccess, setShopMutationSuccess] = useState('');
+  const [restoringShopId, setRestoringShopId] = useState('');
   const [newShopForm, setNewShopForm] = useState({
     name: '',
     platformType: 'taobao',
     url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
     expectedShopName: '',
-    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', ')
+    allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', '),
+    autoSyncTime: '09:00'
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [copiedStates, setCopiedStates] = useState({ key: false, cli: false, mcp: false, task: false });
-  const [isImportResultModalOpen, setIsImportResultModalOpen] = useState(false);
-  const [importResultText, setImportResultText] = useState('');
-  const [importResultError, setImportResultError] = useState('');
+  const [collectionError, setCollectionError] = useState('');
   const [localApiStatus, setLocalApiStatus] = useState('checking');
-
-  const [apiTab, setApiTab] = useState('mcp');
+  const [copiedApiPath, setCopiedApiPath] = useState('');
 
   const [taskRulesByPlatform, setTaskRulesByPlatform] = useState(INITIAL_TASK_RULES_BY_PLATFORM);
   const extractionTasks = taskRulesByPlatform[activePlatform] || [];
@@ -136,13 +112,21 @@ export default function App() {
 
   const [activeTaskId, setActiveTaskId] = useState(null);
   const [draggedColIdx, setDraggedColIdx] = useState(null);
-  const [openColMenuId, setOpenColMenuId] = useState(null);
   const [selectedRecordIds, setSelectedRecordIds] = useState([]);
   const [tableFilter, setTableFilter] = useState('all');
   const [sortDirection, setSortDirection] = useState('desc');
   const [collectionRequests, setCollectionRequests] = useState([]);
   const [storageReady, setStorageReady] = useState(false);
+  const [columnWidths, setColumnWidths] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('data-factory-column-widths') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const [resizingColumnId, setResizingColumnId] = useState(null);
   const screenshotInputRef = useRef(null);
+  const columnResizeRef = useRef(null);
   const lastServerUpdatedAtRef = useRef(0);
   const applyingRemoteStateRef = useRef(false);
   const emptyFieldForm = {
@@ -160,14 +144,87 @@ export default function App() {
     mode: 'create',
     taskId: null,
     insertIndex: -1,
+    error: '',
     form: emptyFieldForm
   });
+  const [manualRecordModal, setManualRecordModal] = useState({ open: false, data: {}, error: '' });
+  const [pendingDeleteAction, setPendingDeleteAction] = useState(null);
 
   useEffect(() => {
-    const handleClickOutside = () => setOpenColMenuId(null);
+    const auditor = new ButtonContractAuditor(document);
+    window.__DATA_FACTORY_BUTTON_AUDIT__ = auditor;
+    return () => {
+      delete window.__DATA_FACTORY_BUTTON_AUDIT__;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('[data-shop-context-menu]')) setShopContextMenu(null);
+      if (!event.target.closest('[data-account-menu]')) setIsAccountMenuOpen(false);
+      if (!event.target.closest('[data-notifications-menu]')) setIsNotificationsOpen(false);
+    };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('data-factory-column-widths', JSON.stringify(columnWidths));
+    } catch (error) {
+      console.warn('Failed to persist DataFactory column widths', error);
+    }
+  }, [columnWidths]);
+
+  useEffect(() => {
+    if (!resizingColumnId) return undefined;
+
+    const handlePointerMove = (event) => {
+      const resize = columnResizeRef.current;
+      if (!resize) return;
+      const nextWidth = Math.min(520, Math.max(100, resize.startWidth + event.clientX - resize.startX));
+      setColumnWidths(widths => ({ ...widths, [resize.columnId]: nextWidth }));
+    };
+    const handlePointerUp = () => {
+      columnResizeRef.current = null;
+      setResizingColumnId(null);
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [resizingColumnId]);
+
+  const getColumnWidth = (columnId) => columnWidths[columnId] || 180;
+  const startColumnResize = (event, columnId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const currentHeader = event.currentTarget.parentElement;
+    columnResizeRef.current = {
+      columnId,
+      startX: event.clientX,
+      startWidth: currentHeader.getBoundingClientRect().width
+    };
+    setResizingColumnId(columnId);
+  };
+  const renderColumnResizeHandle = (columnId) => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖动调整列宽"
+      onPointerDown={(event) => startColumnResize(event, columnId)}
+      className="absolute -right-1 top-0 z-50 h-full w-2 cursor-col-resize touch-none group/resize"
+    >
+      <div className={`mx-auto h-full w-px transition-colors ${resizingColumnId === columnId ? 'bg-[#2954FF]' : 'bg-transparent group-hover/resize:bg-[#2954FF]'}`} />
+    </div>
+  );
 
   const activePlatformData = platforms.find(p => p.id === activePlatform);
   const activePlatformName = activePlatformData?.name;
@@ -176,34 +233,85 @@ export default function App() {
     const idNumber = Number(String(record.id).replace(/\D/g, ''));
     return Number.isNaN(idNumber) ? 0 : idNumber;
   };
-  const rawCurrentPlatformRecords = historyRecords.filter(record => record.platform === activePlatformName);
+  const rawCurrentPlatformRecords = historyRecords.filter(record => (
+    record.shopId ? record.shopId === activePlatform : record.platform === activePlatformName
+  ));
   const currentPlatformRecords = rawCurrentPlatformRecords
     .filter(record => tableFilter === 'all' || record.status === tableFilter)
     .sort((a, b) => {
       const comparison = getRecordSortValue(a) - getRecordSortValue(b);
       return sortDirection === 'desc' ? -comparison : comparison;
     });
-  const latestRecord = currentPlatformRecords[0];
+  const latestRecord = [...rawCurrentPlatformRecords].sort((a, b) => getRecordSortValue(b) - getRecordSortValue(a))[0];
+  const latestSuccessfulRecord = [...rawCurrentPlatformRecords]
+    .filter(record => record.status === 'success')
+    .sort((a, b) => getRecordSortValue(b) - getRecordSortValue(a))[0];
   const selectedTask = extractionTasks.find(task => task.id === activeTaskId) || extractionTasks[0];
   const fieldModalTask = extractionTasks.find(task => task.id === fieldModal.taskId);
   const readyRuleCount = extractionTasks.filter(task => task.status === 'ready').length;
-  const latestCollectionRequest = collectionRequests[0];
-  const pendingCollectionRequest = collectionRequests.find(request => ['waiting_for_codex', 'running'].includes(request.status));
-  const latestFailedCollectionRequest = collectionRequests.find(request => request.status === 'error');
-  const hasExecutableRules = activePlatformData?.authStatus === 'verified' && readyRuleCount > 0;
+  const activeCollectionRequests = collectionRequests.filter(request => (
+    request.shopId === activePlatform
+    || request.platformId === activePlatform
+    || request.platformName === activePlatformName
+  ));
+  const latestCollectionRequest = activeCollectionRequests[0];
+  const pendingCollectionRequest = activeCollectionRequests.find(request => ['waiting_for_runner', 'waiting_for_codex', 'running'].includes(request.status));
+  const hasReadyRules = readyRuleCount > 0;
+  const hasExecutableRules = activePlatformData?.authStatus === 'verified' && hasReadyRules;
+  const hasEgoTaskSpace = Boolean(activePlatformData?.egoBinding?.taskSpaceId);
+  const egoVerification = activePlatformData?.egoBinding?.verification;
+  const hasEgoBinding = Boolean(
+    hasEgoTaskSpace
+    && activePlatformData.egoBinding.shopNameMatched === true
+    && egoVerification?.platformMatched === true
+    && egoVerification?.urlAllowed === true
+    && egoVerification?.loginRequired === false
+  );
   const isLocalWritebackOnline = localApiStatus === 'online';
-  const canRunCollection = hasExecutableRules && isLocalWritebackOnline && !pendingCollectionRequest;
-  const canRunFieldModalCollection = fieldModal.open && fieldModal.mode === 'edit' && fieldModalTask?.status === 'ready' && activePlatformData?.authStatus === 'verified' && isLocalWritebackOnline && !pendingCollectionRequest;
+  const canRunCollection = hasExecutableRules && hasEgoBinding && isLocalWritebackOnline && !pendingCollectionRequest;
+  const canRunFieldModalCollection = fieldModal.open && fieldModal.mode === 'edit' && fieldModalTask?.status === 'ready' && activePlatformData?.authStatus === 'verified' && hasEgoBinding && isLocalWritebackOnline && !pendingCollectionRequest;
   const collectionActionLabel = isRefreshing
-    ? '已生成并复制指令'
+    ? '正在校验并创建...'
     : pendingCollectionRequest
-      ? '任务已生成'
-      : !hasExecutableRules
-        ? '待授权/配置'
-        : !isLocalWritebackOnline
-          ? '本地写回未连接'
-          : '生成采集指令';
+      ? pendingCollectionRequest.status === 'running' ? '正在采集' : '等待执行'
+      : !hasReadyRules
+        ? '请先配置字段'
+        : activePlatformData?.authStatus !== 'verified' || !hasEgoBinding
+          ? '请先校正店铺'
+          : !isLocalWritebackOnline
+            ? '服务未连接'
+            : '立即采集';
   const platformLabels = { taobao: '淘宝', pdd: '拼多多', jd: '京东', other: '其他' };
+  const syncErrorMessages = {
+    shop_not_verified: '店铺尚未校正',
+    ego_window_not_bound: '尚未绑定 Ego 窗口',
+    ego_window_not_verified: 'Ego 窗口与店铺不一致',
+    ego_binding_verification_required: '登录或店铺校验已失效',
+    no_ready_rules: '没有可采集字段',
+    ego_task_space_missing: '绑定的 Ego 窗口不存在',
+    ego_window_in_use: 'Ego 窗口正在使用中',
+    ego_login_required: '店铺登录已失效',
+    shop_name_mismatch: '当前登录的店铺不正确',
+    current_url_not_allowed: '当前页面不属于该店铺',
+    data_updated_at_required: '页面没有数据更新时间',
+    no_field_values_found: '没有读取到字段数据',
+    no_matching_ready_field: '返回数据与字段不匹配',
+    runner_timeout: '采集超时',
+    partial_field_error: '部分字段读取失败'
+  };
+  const shopNeedsCalibration = activePlatformData?.authStatus !== 'verified' || !hasEgoBinding;
+  const latestSyncFailed = !shopNeedsCalibration && latestCollectionRequest?.status === 'error';
+  const latestSyncSucceeded = latestCollectionRequest?.status === 'done';
+  const shopAttentionText = activePlatformData?.egoBinding?.needsUserLogin
+    ? 'Ego 登录已失效，请登录后重新校正'
+    : activePlatformData?.authStatus === 'mismatch'
+      ? '店铺校验未通过，请重新校正'
+      : !hasEgoTaskSpace
+        ? '尚未绑定 Ego 店铺窗口'
+        : '店铺尚未完成校正';
+  const latestSyncErrorText = latestSyncFailed
+    ? syncErrorMessages[latestCollectionRequest.error] || latestCollectionRequest.evidence || '本次同步没有完成'
+    : '';
   const visibleRecordIds = currentPlatformRecords.map(record => record.id);
   const selectedVisibleRecordIds = selectedRecordIds.filter(id => visibleRecordIds.includes(id));
   const isAllVisibleRecordsSelected = visibleRecordIds.length > 0 && selectedVisibleRecordIds.length === visibleRecordIds.length;
@@ -227,7 +335,7 @@ export default function App() {
   const calibratePlatform = (platformId, payload = {}) => {
     setPlatforms(prev => prev.map(platform => {
       if (platform.id !== platformId) return platform;
-      const inferredName = payload.detectedName ?? platform.expectedShopName ?? (platform.platformType === 'taobao' ? '南苏科技' : '');
+      const inferredName = payload.detectedName ?? '';
       const calibration = resolveCalibration(platform, inferredName);
       return {
         ...platform,
@@ -239,14 +347,21 @@ export default function App() {
   };
 
   const handleCalibrateActivePlatform = () => {
-    calibratePlatform(activePlatform);
+    setScanError('');
+    setEgoResumeRequired(false);
+    setIsEgoBindingModalOpen(true);
   };
 
   const applyPersistedState = (savedState) => {
     if (!savedState) return;
     const normalizedState = normalizeDataFactoryState(savedState);
     setPlatforms(normalizedState.platforms);
-    setActivePlatform(normalizedState.activePlatform);
+    setTrashedShops(normalizedState.trashedShops);
+    setActivePlatform(current => (
+      normalizedState.platforms.some(platform => platform.id === current)
+        ? current
+        : normalizedState.activePlatform
+    ));
     setTaskRulesByPlatform(normalizedState.taskRulesByPlatform);
     setHistoryRecords(normalizedState.historyRecords);
     setCollectionRequests(normalizedState.collectionRequests);
@@ -256,6 +371,7 @@ export default function App() {
     workspaceId,
     userId,
     platforms,
+    trashedShops,
     activePlatform,
     taskRulesByPlatform,
     historyRecords,
@@ -266,9 +382,18 @@ export default function App() {
     const response = await fetch(`${apiBase}/state`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state })
+      body: JSON.stringify({ state, expectedUpdatedAt: lastServerUpdatedAtRef.current })
     });
     const payload = await response.json();
+    if (response.status === 409 && payload?.state) {
+      applyingRemoteStateRef.current = true;
+      applyPersistedState(payload.state);
+      lastServerUpdatedAtRef.current = payload.updatedAt || 0;
+      setTimeout(() => {
+        applyingRemoteStateRef.current = false;
+      }, 0);
+      return { ...payload, conflict: true };
+    }
     if (!response.ok || !payload?.ok) throw new Error(payload?.error || 'state_persist_failed');
     setLocalApiStatus('online');
     if (payload.updatedAt) lastServerUpdatedAtRef.current = payload.updatedAt;
@@ -279,12 +404,6 @@ export default function App() {
     let mounted = true;
 
     const restoreState = async () => {
-      try {
-        applyPersistedState(JSON.parse(localStorage.getItem(storageKey) || 'null'));
-      } catch (error) {
-        console.warn('Failed to restore DataFactory state', error);
-      }
-
       try {
         const response = await fetch(`${apiBase}/state`);
         const payload = await response.json();
@@ -300,6 +419,11 @@ export default function App() {
       } catch (error) {
         setLocalApiStatus('offline');
         console.warn('Failed to restore DataFactory server state', error);
+        try {
+          applyPersistedState(JSON.parse(localStorage.getItem(storageKey) || 'null'));
+        } catch (storageError) {
+          console.warn('Failed to restore local DataFactory state', storageError);
+        }
       }
 
       if (mounted) setStorageReady(true);
@@ -342,7 +466,8 @@ export default function App() {
       console.warn('Failed to persist DataFactory state', error);
     }
 
-    persistStateSnapshot(persistedState)
+    const { activePlatform: _localActivePlatform, ...sharedState } = persistedState;
+    persistStateSnapshot(sharedState)
       .then(payload => {
         if (payload?.updatedAt) lastServerUpdatedAtRef.current = payload.updatedAt;
       })
@@ -350,7 +475,17 @@ export default function App() {
         setLocalApiStatus('offline');
         console.warn('Failed to persist DataFactory server state', error);
       });
-  }, [storageReady, workspaceId, userId, platforms, activePlatform, taskRulesByPlatform, historyRecords, collectionRequests]);
+  }, [storageReady, workspaceId, userId, platforms, trashedShops, taskRulesByPlatform, historyRecords, collectionRequests]);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    try {
+      const localState = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      localStorage.setItem(storageKey, JSON.stringify({ ...localState, activePlatform }));
+    } catch (error) {
+      console.warn('Failed to persist selected shop locally', error);
+    }
+  }, [storageReady, activePlatform]);
 
   useEffect(() => {
     if (!storageReady) return undefined;
@@ -381,7 +516,7 @@ export default function App() {
     setCollectionRequests(requests => {
       let marked = false;
       return requests.map(request => {
-        if (marked || !['waiting_for_codex', 'running', 'error'].includes(request.status)) return request;
+        if (marked || !['waiting_for_runner', 'waiting_for_codex', 'running', 'error'].includes(request.status)) return request;
         marked = true;
         return {
           ...request,
@@ -394,62 +529,9 @@ export default function App() {
     });
   };
 
-  const cancelPendingCollectionRequest = () => {
-    if (!pendingCollectionRequest) return;
-    setCollectionRequests(requests => requests.map(request => (
-      request.id === pendingCollectionRequest.id
-        ? {
-          ...request,
-          status: 'cancelled',
-          completedAt: Date.now(),
-          evidence: request.evidence || '用户取消等待中的采集任务。'
-        }
-        : request
-    )));
-  };
-
-  const retryFailedCollectionRequest = async () => {
-    if (!latestFailedCollectionRequest) return;
-    const nextRequests = collectionRequests.map(request => {
-      if (request.id !== latestFailedCollectionRequest.id) return request;
-      const { completedAt, error, recordId, ...rest } = request;
-      return {
-        ...rest,
-        status: 'waiting_for_codex',
-        statusText: '已重新排队，等待本地执行器调用 Tabbit。',
-        evidence: '用户已重新排队该采集任务。'
-      };
-    });
-    setCollectionRequests(nextRequests);
-    try {
-      await persistStateSnapshot({
-        ...buildPersistedState(),
-        collectionRequests: nextRequests
-      });
-    } catch (error) {
-      setLocalApiStatus('offline');
-      markCollectionRequestDispatchFailed(latestFailedCollectionRequest.id, error);
-    }
-  };
-
-  const dismissFailedCollectionRequest = () => {
-    if (!latestFailedCollectionRequest) return;
-    setCollectionRequests(requests => requests.map(request => (
-      request.id === latestFailedCollectionRequest.id
-        ? {
-          ...request,
-          status: 'cancelled',
-          completedAt: Date.now(),
-          statusText: '已忽略该失败任务。',
-          evidence: request.evidence || '用户忽略失败任务。'
-        }
-        : request
-    )));
-  };
-
   const buildPromptForCollectionRequest = (request) => {
     if (!request) return '';
-    if (request.tabbitPrompt?.trim()) return request.tabbitPrompt;
+    if (request.egoPrompt?.trim()) return request.egoPrompt;
 
     const requestShop = platforms.find(platform => (
       platform.id === request.shopId
@@ -461,22 +543,18 @@ export default function App() {
       : extractionTasks.filter(task => task.status === 'ready');
 
     if (!requestShop || requestRules.length === 0) return '';
-    return buildTabbitBatchPrompt({ shop: requestShop, rules: requestRules });
-  };
-
-  const copyCollectionPrompt = (request) => {
-    const prompt = buildPromptForCollectionRequest(request);
-    if (!prompt) return;
-    handleCopy('task', prompt);
-  };
-
-  const copyPendingCollectionPrompt = () => {
-    copyCollectionPrompt(pendingCollectionRequest);
+    return buildEgoBatchPrompt({ shop: requestShop, rules: requestRules });
   };
 
   const createCollectionRequest = ({ fieldNames } = {}) => {
     if (activePlatformData?.authStatus !== 'verified') {
       return { ok: false, error: 'platform_not_verified', activePlatformName };
+    }
+    if (!activePlatformData?.egoBinding?.taskSpaceId) {
+      return { ok: false, error: 'ego_window_not_bound', activePlatformName };
+    }
+    if (activePlatformData.egoBinding.shopNameMatched !== true) {
+      return { ok: false, error: 'ego_window_not_verified', activePlatformName };
     }
     if (pendingCollectionRequest) {
       return { ok: false, error: 'pending_collection_request', request: pendingCollectionRequest };
@@ -490,7 +568,7 @@ export default function App() {
     }
 
     const request = {
-      id: `RUN-${Date.now().toString().slice(-6)}`,
+      id: `RUN-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`,
       workspaceId,
       shopId: activePlatform,
       createdAt: Date.now(),
@@ -499,10 +577,11 @@ export default function App() {
       platformName: activePlatformName,
       expectedShopName: activePlatformData.expectedShopName,
       detectedName: activePlatformData.detectedName,
-      status: 'waiting_for_codex',
+      status: 'waiting_for_runner',
       rules,
-      instruction: 'Codex 读取 tabbitPrompt 后调用 Tabbit MCP 执行采集，并通过 writeRecord 或 writeFieldResult 写回 DataFactory。',
-      tabbitPrompt: buildTabbitBatchPrompt({ shop: activePlatformData, rules })
+      instruction: '本地执行器读取 egoPrompt，进入店铺绑定的 Ego Task Space 执行采集，再通过 DataFactory API 写回记录。',
+      egoBinding: activePlatformData.egoBinding || null,
+      egoPrompt: buildEgoBatchPrompt({ shop: activePlatformData, rules })
     };
 
     setCollectionRequests(requests => [request, ...requests]);
@@ -510,7 +589,7 @@ export default function App() {
     return { ok: true, request };
   };
 
-  const writeCollectionResult = ({ data = {}, status = 'success', source = 'tabbit', evidence = '', shopCalibration, currentUrl } = {}) => {
+  const writeCollectionResult = ({ data = {}, status = 'success', source = 'ego-lite', evidence = '', shopCalibration, currentUrl } = {}) => {
     if (activePlatformData?.authStatus !== 'verified') {
       return { ok: false, error: 'platform_not_verified', activePlatformName };
     }
@@ -539,7 +618,7 @@ export default function App() {
       return { ok: false, error: 'no_matching_ready_field', activePlatformName };
     }
     const record = {
-      id: `REC-${Date.now().toString().slice(-6)}`,
+      id: `REC-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`,
       workspaceId,
       shopId: activePlatform,
       time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
@@ -573,53 +652,6 @@ export default function App() {
     return { ok: true, record };
   };
 
-  const openImportResultModal = () => {
-    setImportResultText('');
-    setImportResultError('');
-    setIsImportResultModalOpen(true);
-  };
-
-  const handleImportCollectionResult = () => {
-    let payload;
-    try {
-      payload = JSON.parse(importResultText.trim());
-    } catch {
-      setImportResultError('JSON 格式不正确，请粘贴 Tabbit 返回的完整 JSON。');
-      return;
-    }
-    if (!payload.dataUpdatedAt?.trim()) {
-      setImportResultError('缺少 dataUpdatedAt。请先让 Tabbit 刷新淘宝/千牛页面，并读取页面显示的「数据更新时间」后再导入。');
-      return;
-    }
-
-    const fieldData = Array.isArray(payload.fields)
-      ? payload.fields.reduce((data, field) => {
-        if (field?.fieldName && field.value !== undefined && field.status !== 'error') {
-          data[field.fieldName] = field.value;
-        }
-        return data;
-      }, {})
-      : {};
-    const directData = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : {};
-    const result = writeCollectionResult({
-      data: { ...directData, ...fieldData },
-      status: 'success',
-      source: 'tabbit-bridge-json-import',
-      evidence: payload.evidence || `Tabbit Bridge 批量采集结果${payload.dataUpdatedAt ? `，数据更新时间 ${payload.dataUpdatedAt}` : ''}`,
-      shopCalibration: payload.shopCalibration,
-      currentUrl: payload.currentUrl
-    });
-
-    if (!result.ok) {
-      setImportResultError(`写入失败: ${result.error}`);
-      return;
-    }
-
-    setIsImportResultModalOpen(false);
-    setImportResultText('');
-    setImportResultError('');
-  };
-
   useEffect(() => {
     window.__DATA_FACTORY_MVP__ = {
       readState: () => ({
@@ -634,7 +666,9 @@ export default function App() {
         canRunCollection,
         collectionRequests,
         pendingCollectionRequest,
-        records: historyRecords.filter(record => record.platform === activePlatformName)
+        records: historyRecords.filter(record => (
+          record.shopId ? record.shopId === activePlatform : record.platform === activePlatformName
+        ))
       }),
       requestCollection: createCollectionRequest,
       readRule: ({ fieldName, ruleId } = {}) => {
@@ -651,7 +685,7 @@ export default function App() {
         return { ok: true, platformId, ...calibration };
       },
       writeRecord: writeCollectionResult,
-      writeFieldResult: ({ fieldName, ruleId, value, status = 'success', source = 'tabbit', evidence = '' } = {}) => {
+      writeFieldResult: ({ fieldName, ruleId, value, status = 'success', source = 'ego-lite', evidence = '' } = {}) => {
         const rule = extractionTasks.find(task => (
           ruleId !== undefined ? task.id === ruleId : task.fieldName === fieldName
         ));
@@ -674,169 +708,167 @@ export default function App() {
     if (activePlatformData) {
       setActiveTaskId(null);
       setSelectedRecordIds([]);
-      setOpenColMenuId(null);
     }
   }, [activePlatformData]);
 
-  const handleAddShopSubmit = () => {
-    if (!newShopForm.name.trim() || !newShopForm.expectedShopName.trim()) return;
-    const newShop = {
-      id: `shop_${Date.now()}`,
-      workspaceId,
-      platformType: newShopForm.platformType || 'other',
-      name: newShopForm.name,
-      url: newShopForm.url || 'https://',
-      expectedShopName: newShopForm.expectedShopName.trim(),
-      allowedDomains: normalizeAllowedDomains(newShopForm.allowedDomains),
-      authStatus: 'unauthorized',
-      detectedName: ''
-    };
-    setPlatforms([...platforms, newShop]);
-    setTaskRulesByPlatform(prev => ({ ...prev, [newShop.id]: [] }));
-    setActivePlatform(newShop.id);
-    setMainView('dashboard');
-    setNewShopForm({
-      name: '',
-      platformType: 'taobao',
-      url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
-      expectedShopName: '',
-      allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', ')
-    });
-    setIsAddShopModalOpen(false);
-  };
-
-  const scanTabbitShops = async () => {
-    setIsScanningTabbit(true);
-    const buildSyncTimeMap = (shops) => Object.fromEntries(shops.map(shop => {
-      const existingShop = platforms.find(platform => isSameScannedShop(platform, shop));
-      return [shop.scanId, shop.autoSyncTime || existingShop?.autoSyncTime || '09:00'];
-    }));
-    try {
-      const response = await fetch(`${apiBase}/runner/tabbit-shops`, { cache: 'no-store' });
-      const payload = await response.json();
-      if (payload?.ok && Array.isArray(payload.shops) && payload.shops.length > 0) {
-        setScannedTabbitShops(payload.shops);
-        setSelectedScannedShopIds(payload.shops.filter(shop => shop.loginStatus === 'active').map(shop => shop.scanId));
-        setScannedShopSyncTimes(buildSyncTimeMap(payload.shops));
-        setScanSource(payload.source || 'runner');
-        return;
-      }
-      throw new Error('empty_runner_scan');
-    } catch {
-      setScannedTabbitShops(demoScannedTabbitShops);
-      setSelectedScannedShopIds(demoScannedTabbitShops.filter(shop => shop.loginStatus === 'active').map(shop => shop.scanId));
-      setScannedShopSyncTimes(buildSyncTimeMap(demoScannedTabbitShops));
-      setScanSource('demo');
-    } finally {
-      setIsScanningTabbit(false);
-    }
-  };
-
-  const openTabbitScanModal = () => {
+  const openAddShopModal = () => {
+    setAddShopError('');
     setIsAddShopModalOpen(true);
-    scanTabbitShops();
   };
 
-  const toggleScannedShopSelection = (scanId) => {
-    setSelectedScannedShopIds(ids => (
-      ids.includes(scanId) ? ids.filter(id => id !== scanId) : [...ids, scanId]
-    ));
-  };
-
-  const updateScannedShopSyncTime = (scanId, autoSyncTime) => {
-    setScannedShopSyncTimes(times => ({ ...times, [scanId]: autoSyncTime }));
-  };
-
-  const buildRulesForScannedShop = (shopId, platformType) => {
-    const sourceRules = INITIAL_TASK_RULES_BY_PLATFORM[platformType] || [];
-    return sourceRules.map(rule => ({
-      ...rule,
-      id: `${shopId}_${rule.id || rule.fieldName}`,
-      workspaceId,
-      shopId,
-      status: platformType === 'taobao' ? 'ready' : rule.status || 'draft'
+  const handleNewShopPlatformChange = (platformType) => {
+    const defaults = PLATFORM_IDENTITY_DEFAULTS[platformType] || PLATFORM_IDENTITY_DEFAULTS.other;
+    setNewShopForm(form => ({
+      ...form,
+      platformType,
+      url: defaults.url,
+      allowedDomains: defaults.allowedDomains.join(', ')
     }));
   };
 
-  const getScannedShopNames = (shop) => new Set(
-    [shop.detectedName, shop.displayName].filter(Boolean).map(name => name.trim())
-  );
-
-  const isSameScannedShop = (platform, shop) => {
-    if (platform.platformType !== shop.platformType) return false;
-    const scannedNames = getScannedShopNames(shop);
-    return [platform.expectedShopName, platform.detectedName, platform.name]
-      .filter(Boolean)
-      .some(name => scannedNames.has(name.trim()));
-  };
-
-  const getScannedShopStatus = (shop, alreadySynced) => {
-    if (shop.loginStatus !== 'active') {
-      return {
-        label: '需确认',
-        className: 'bg-amber-50 text-amber-600 border-amber-100'
-      };
+  const handleAddShopSubmit = async () => {
+    if (isSavingShop) return;
+    const displayName = newShopForm.name.trim();
+    const expectedShopName = newShopForm.expectedShopName.trim();
+    const url = newShopForm.url.trim();
+    if (!displayName || !expectedShopName || !extractHostname(url)) {
+      setAddShopError('请填写店铺名称、后台入口和用于校验的实际店铺名。');
+      return;
     }
-    if (alreadySynced) {
-      return {
-        label: '已同步',
-        className: 'bg-gray-100 text-[#86909C] border-gray-200'
-      };
+    const isDuplicate = [...platforms, ...trashedShops].some(platform => (
+      platform.platformType === newShopForm.platformType
+      && platform.expectedShopName?.trim() === expectedShopName
+    ));
+    if (isDuplicate) {
+      const isInTrash = trashedShops.some(shop => shop.platformType === newShopForm.platformType && shop.expectedShopName?.trim() === expectedShopName);
+      setAddShopError(isInTrash ? '这个店铺已在回收站，请先到回收站恢复。' : '这个平台和店铺名已经存在，请直接进入已有店铺绑定 Ego 窗口。');
+      return;
     }
-    return {
-      label: '可同步',
-      className: 'bg-green-50 text-green-600 border-green-100'
+    const allowedDomains = normalizeAllowedDomains(newShopForm.allowedDomains);
+    const input = {
+      platformType: newShopForm.platformType || 'other',
+      name: displayName,
+      url,
+      expectedShopName,
+      allowedDomains: allowedDomains.length ? allowedDomains : inferAllowedDomains({ platformType: newShopForm.platformType, url }),
+      autoSyncEnabled: true,
+      autoSyncTime: newShopForm.autoSyncTime || '09:00'
     };
+    setIsSavingShop(true);
+    setAddShopError('');
+    try {
+      const response = await fetch(`${apiBase}/shops`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok || !payload.state) throw new Error(payload?.error || 'shop_create_failed');
+      applyingRemoteStateRef.current = true;
+      applyPersistedState(payload.state);
+      lastServerUpdatedAtRef.current = payload.updatedAt || 0;
+      setTimeout(() => { applyingRemoteStateRef.current = false; }, 0);
+      setNewShopForm({
+        name: '',
+        platformType: 'taobao',
+        url: PLATFORM_IDENTITY_DEFAULTS.taobao.url,
+        expectedShopName: '',
+        allowedDomains: PLATFORM_IDENTITY_DEFAULTS.taobao.allowedDomains.join(', '),
+        autoSyncTime: '09:00'
+      });
+      setIsAddShopModalOpen(false);
+      setMainView('dashboard');
+      setIsEgoBindingModalOpen(true);
+      setLocalApiStatus('online');
+    } catch (error) {
+      const message = error.message === 'shop_in_trash'
+        ? '这个店铺已在回收站，请先恢复。'
+        : error.message === 'shop_already_exists'
+          ? '这个店铺已存在。'
+          : '店铺没有保存成功，请确认本地接口已连接后重试。';
+      setAddShopError(message);
+    } finally {
+      setIsSavingShop(false);
+    }
   };
 
-  const handleSyncScannedShops = () => {
-    const selectedShops = scannedTabbitShops.filter(shop => selectedScannedShopIds.includes(shop.scanId));
-    if (selectedShops.length === 0) return;
+  const applyShopMutationResponse = (payload) => {
+    applyingRemoteStateRef.current = true;
+    applyPersistedState(payload.state);
+    lastServerUpdatedAtRef.current = payload.updatedAt || 0;
+    setTimeout(() => { applyingRemoteStateRef.current = false; }, 0);
+  };
 
-    let firstSyncedShopId = activePlatform;
-    const nextRulesByPlatform = { ...taskRulesByPlatform };
-    const nextPlatforms = [...platforms];
+  const handleMoveShopToTrash = async () => {
+    if (!shopPendingTrash) return;
+    setShopMutationError('');
+    try {
+      const response = await fetch(`${apiBase}/shops/${encodeURIComponent(shopPendingTrash.id)}`, { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok || !payload.state) throw new Error(payload?.error || 'shop_trash_failed');
+      applyShopMutationResponse(payload);
+      setShopPendingTrash(null);
+      setMainView(payload.state.platforms.length > 0 ? 'dashboard' : 'trash');
+    } catch {
+      setShopMutationError('移入回收站失败，请确认本地接口已连接。');
+    }
+  };
 
-    selectedShops.forEach((shop, index) => {
-      const existingShop = nextPlatforms.find(platform => isSameScannedShop(platform, shop));
-      const defaults = PLATFORM_IDENTITY_DEFAULTS[shop.platformType] || PLATFORM_IDENTITY_DEFAULTS.other;
-      const syncPayload = {
-        workspaceId,
-        platformType: shop.platformType,
-        name: existingShop?.name || shop.displayName || shop.detectedName,
-        url: shop.url || defaults.url,
-        expectedShopName: shop.detectedName,
-        allowedDomains: normalizeAllowedDomains(shop.allowedDomains?.length ? shop.allowedDomains : defaults.allowedDomains),
-        authStatus: shop.loginStatus === 'active' ? 'verified' : 'unauthorized',
-        detectedName: shop.loginStatus === 'active' ? shop.detectedName : '',
-        detectedFrom: 'tabbit-scan',
-        tabbitTabTitle: shop.tabTitle,
-        autoSyncEnabled: true,
-        autoSyncTime: scannedShopSyncTimes[shop.scanId] || existingShop?.autoSyncTime || shop.autoSyncTime || '09:00',
-        lastScannedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false })
-      };
+  const handleRestoreShop = async (shopId) => {
+    setShopMutationError('');
+    setShopMutationSuccess('');
+    setRestoringShopId(shopId);
+    try {
+      const response = await fetch(`${apiBase}/trash/${encodeURIComponent(shopId)}/restore`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok || !payload.state) throw new Error(payload?.error || 'shop_restore_failed');
+      applyShopMutationResponse(payload);
+      setShopMutationSuccess('店铺已恢复。为确保不会采集错店，请重新校正 Ego Lite 店铺窗口。');
+    } catch {
+      setShopMutationError('恢复店铺失败，请稍后重试。');
+    } finally {
+      setRestoringShopId('');
+    }
+  };
 
-      if (existingShop) {
-        Object.assign(existingShop, syncPayload);
-        if (index === 0) firstSyncedShopId = existingShop.id;
+  const openEgoBindingModal = () => {
+    setScanError('');
+    setEgoResumeRequired(false);
+    setIsEgoBindingModalOpen(true);
+  };
+
+  const bindActiveShopToEgo = async ({ resume = false } = {}) => {
+    if (!activePlatformData || isBindingEgo) return;
+    setIsBindingEgo(true);
+    setScanError('');
+    try {
+      const response = await fetch(`${apiBase}/runner/ego-bind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: activePlatformData.id, resume })
+      });
+      const payload = await response.json();
+      if (response.status === 409 && payload?.error === 'ego_user_control') {
+        setEgoResumeRequired(true);
+        setScanError(payload.message || '请先在 Ego lite 完成登录，再继续校准。');
         return;
       }
-
-      const shopId = `tabbit_${shop.platformType}_${Date.now()}_${index}`;
-      const newShop = {
-        id: shopId,
-        ...syncPayload
-      };
-      nextPlatforms.push(newShop);
-      nextRulesByPlatform[shopId] = buildRulesForScannedShop(shopId, shop.platformType);
-      if (index === 0) firstSyncedShopId = shopId;
-    });
-
-    setPlatforms(nextPlatforms);
-    setTaskRulesByPlatform(nextRulesByPlatform);
-    setActivePlatform(firstSyncedShopId);
-    setMainView('dashboard');
-    setIsAddShopModalOpen(false);
+      if (!response.ok || !payload?.ok || !payload.shop) {
+        throw new Error(payload?.error || 'ego_bind_failed');
+      }
+      setPlatforms(items => items.map(item => item.id === payload.shop.id ? payload.shop : item));
+      if (payload.requiresUserAction) {
+        setEgoResumeRequired(true);
+        setScanError(payload.message || '请在专属 Ego 窗口完成登录或切换到正确店铺，然后重新校验。');
+      } else {
+        setEgoResumeRequired(false);
+        setScanError('');
+      }
+    } catch (error) {
+      setScanError(error.message || '无法创建 Ego lite 店铺窗口');
+    } finally {
+      setIsBindingEgo(false);
+    }
   };
 
   const buildFieldFormFromTask = (task = {}) => ({
@@ -857,6 +889,7 @@ export default function App() {
       mode: 'create',
       taskId: null,
       insertIndex,
+      error: '',
       form: {
         ...emptyFieldForm,
         pagePath: activePlatformData?.url || '',
@@ -873,6 +906,7 @@ export default function App() {
       mode: 'edit',
       taskId: task.id,
       insertIndex: -1,
+      error: '',
       form: buildFieldFormFromTask(task)
     });
   };
@@ -882,22 +916,11 @@ export default function App() {
   };
 
   const updateFieldModalForm = (patch) => {
-    setFieldModal(prev => ({ ...prev, form: { ...prev.form, ...patch } }));
+    setFieldModal(prev => ({ ...prev, error: '', form: { ...prev.form, ...patch } }));
   };
 
-  const autoRecognizeFieldPath = () => {
-    const fieldName = fieldModal.form.fieldName.trim() || '目标字段';
-    updateFieldModalForm({
-      screenshot: 'annotated',
-      recognizedPath: `标题「${fieldName}」附近的主数值`,
-      markerNote: fieldModal.form.markerNote || `箭头指向「${fieldName}」标题下方的目标数值`
-    });
-  };
-
-  const handleScreenshotUpload = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const applyScreenshotFile = (file) => {
+    if (!file?.type?.startsWith('image/')) return false;
     const reader = new FileReader();
     reader.onload = () => {
       const fieldName = fieldModal.form.fieldName.trim() || '目标字段';
@@ -908,8 +931,32 @@ export default function App() {
       });
     };
     reader.readAsDataURL(file);
+    return true;
+  };
+
+  const handleScreenshotUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    applyScreenshotFile(file);
     event.target.value = '';
   };
+
+  useEffect(() => {
+    if (!fieldModal.open) return undefined;
+
+    const handleScreenshotPaste = (event) => {
+      const clipboardItems = Array.from(event.clipboardData?.items || []);
+      const imageItem = clipboardItems.find(item => item.kind === 'file' && item.type.startsWith('image/'));
+      const imageFile = imageItem?.getAsFile();
+      if (!imageFile) return;
+
+      event.preventDefault();
+      applyScreenshotFile(imageFile);
+    };
+
+    document.addEventListener('paste', handleScreenshotPaste);
+    return () => document.removeEventListener('paste', handleScreenshotPaste);
+  }, [fieldModal.open, fieldModal.form.fieldName, fieldModal.form.markerNote, fieldModal.form.recognizedPath]);
 
   const applyFieldPreset = (fieldName) => {
     const buildStoreMetricPreset = (name, valueType = '数字文本') => ({
@@ -937,20 +984,28 @@ export default function App() {
     const form = fieldModal.form;
     const fieldName = form.fieldName.trim();
     if (!fieldName) return;
+    const duplicateField = extractionTasks.some(task => (
+      task.id !== fieldModal.taskId && task.fieldName.trim().toLowerCase() === fieldName.toLowerCase()
+    ));
+    if (duplicateField) {
+      setFieldModal(prev => ({ ...prev, error: `字段「${fieldName}」已经存在，请换一个名称。` }));
+      return;
+    }
 
-    const isReady = Boolean(form.prompt.trim() && form.recognizedPath.trim());
+    const recognizedPath = form.recognizedPath.trim() || `标题「${fieldName}」附近的主数值`;
+    const isReady = Boolean(form.prompt.trim());
     const markerNote = form.markerNote.trim().replaceAll('目标字段', fieldName);
     const taskPayload = {
       fieldName,
-      value: form.defaultValue.trim() || null,
+      value: fieldModal.mode === 'edit' ? (form.defaultValue.trim() || null) : null,
       prompt: form.prompt.trim(),
-      pagePath: form.pagePath.trim() || '待上传标记截图后识别',
+      pagePath: form.pagePath.trim() || activePlatformData?.url || '店铺后台首页',
       clickPath: form.clickPath.trim(),
       screenshot: form.screenshotUrl || markerNote ? 'annotated' : null,
       screenshotUrl: form.screenshotUrl || '',
       markerNote,
-      recognizedPath: form.recognizedPath.trim(),
-      confidence: form.recognizedPath.trim() ? 88 : null,
+      recognizedPath,
+      confidence: form.screenshotUrl ? 88 : 80,
       status: isReady ? 'ready' : 'draft'
     };
 
@@ -979,7 +1034,10 @@ export default function App() {
   const removeTask = (id) => {
     setExtractionTasks(tasks => tasks.filter(t => t.id !== id));
     if (activeTaskId === id) setActiveTaskId(null);
-    setOpenColMenuId(null);
+  };
+
+  const requestRemoveTask = (task) => {
+    setPendingDeleteAction({ type: 'field', id: task.id, label: task.fieldName });
   };
 
   const toggleSelectAllRows = () => {
@@ -1003,32 +1061,64 @@ export default function App() {
     setSelectedRecordIds(prev => prev.filter(id => !recordIds.includes(id)));
   };
 
+
+  const requestDeleteRecords = (recordIds) => {
+    if (recordIds.length === 0) return;
+    setPendingDeleteAction({ type: 'records', ids: recordIds });
+  };
+
+  const confirmDeleteAction = () => {
+    if (pendingDeleteAction?.type === 'records') {
+      deleteRecords(pendingDeleteAction.ids);
+    }
+    if (pendingDeleteAction?.type === 'field') {
+      removeTask(pendingDeleteAction.id);
+      if (fieldModal.open && fieldModal.taskId === pendingDeleteAction.id) closeFieldModal();
+    }
+    setPendingDeleteAction(null);
+  };
+
   const handleAddManualRecord = () => {
     const emptyData = extractionTasks.reduce((data, task) => {
       data[task.fieldName] = '';
       return data;
     }, {});
+    setManualRecordModal({ open: true, data: emptyData, error: '' });
+  };
+
+  const saveManualRecord = () => {
+    const data = Object.fromEntries(Object.entries(manualRecordModal.data).filter(([, value]) => String(value).trim() !== ''));
+    if (Object.keys(data).length === 0) {
+      setManualRecordModal(modal => ({ ...modal, error: '请至少填写一个字段后再保存。' }));
+      return;
+    }
     setHistoryRecords(records => [
       {
-        id: `REC-${Date.now().toString().slice(-6)}`,
+        id: `REC-${Date.now().toString().slice(-6)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`,
         workspaceId,
         shopId: activePlatform,
         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
         createdAt: Date.now(),
         platform: activePlatformName,
         status: 'success',
-        source: 'manual',
-        data: emptyData
+        source: 'manual-entry',
+        evidence: '运营人员在 DataFactory 手动录入。',
+        data
       },
       ...records
     ]);
+    setManualRecordModal({ open: false, data: {}, error: '' });
   };
 
   const handleExportRecords = () => {
-    const headers = ['记录 ID', '提取时间', ...extractionTasks.map(task => task.fieldName)];
+    const headers = ['记录 ID', '提取时间', '状态', '来源', '页面数据时间', '采集证据', ...extractionTasks.map(task => task.fieldName)];
     const rows = currentPlatformRecords.map(record => [
       record.id,
       record.time,
+      record.status === 'success' ? '成功' : '异常',
+      record.source || '',
+      record.dataUpdatedAt || '',
+      record.evidence || '',
       ...extractionTasks.map(task => record.data[task.fieldName] ?? '')
     ]);
     const csv = [headers, ...rows]
@@ -1043,100 +1133,82 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const apiKey = 'sk-factory-8f92a-xxxxxxxx-xxxx';
-  const mcpConfigSnippet = `{
-  "mcpServers": {
-    "data-factory-server": {
-      "command": "npx",
-      "args": ["-y", "@data-factory/mcp-server"],
-      "env": {
-        "DATA_FACTORY_API_KEY": "${apiKey}"
-      }
-    }
-  }
-}`;
-  const cliSnippet = `# 将此指令投喂给 CodeX 等终端 Agent，它将自动解析返回的 JSON
-export DATA_FACTORY_API_KEY="sk-factory-xxxxxxxx"
-data-factory get-records --shop "${activePlatformName}" --format json`;
-  const restSnippet = `curl -X GET "https://api.datafactory.ai/v1/sandbox/${activePlatform}/records/latest" \\
-  -H "Authorization: Bearer sk-factory-8f92a-..." \\
-  -H "Content-Type: application/json"`;
-
-  const handleCopy = async (type, text) => {
+  const copyApiEndpoint = async (path, copiedKey = path) => {
+    const value = `${apiBase}${path}`;
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.setAttribute('readonly', '');
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
+      await navigator.clipboard.writeText(value);
+      setCopiedApiPath(copiedKey);
+      setTimeout(() => setCopiedApiPath(''), 1600);
     } catch (error) {
-      console.warn('Failed to copy DataFactory snippet', error);
+      console.warn('Failed to copy API endpoint', error);
     }
-    setCopiedStates(prev => ({ ...prev, [type]: true }));
-    setTimeout(() => setCopiedStates(prev => ({ ...prev, [type]: false })), 2000);
   };
 
-  const persistNewCollectionRequest = async (request) => {
-    await persistStateSnapshot({
-      ...buildPersistedState(),
-      collectionRequests: [request, ...collectionRequests]
+  const updateActiveShopPreference = (patch) => {
+    setPlatforms(items => items.map(item => item.id === activePlatform ? { ...item, ...patch } : item));
+  };
+
+  const persistNewCollectionRequest = async ({ fieldNames } = {}) => {
+    const response = await fetch(`${apiBase}/collection-runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shopId: activePlatform,
+        fieldNames,
+        trigger: 'manual'
+      })
     });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok || !payload.run) throw new Error(payload?.error || 'collection_run_create_failed');
+    if (payload.updatedAt) lastServerUpdatedAtRef.current = payload.updatedAt;
+    setCollectionRequests(requests => [payload.run, ...requests.filter(item => item.id !== payload.run.id)]);
+    return payload.run;
   };
 
-  const markCollectionRequestDispatchFailed = (requestId, error) => {
-    setCollectionRequests(requests => requests.map(request => (
-      request.id === requestId
-        ? {
-          ...request,
-          status: 'error',
-          completedAt: Date.now(),
-          error: error.message || 'local_writeback_offline',
-          evidence: '生成任务后同步到本地写回服务失败，请确认 npm run dev 正在运行。'
-        }
-        : request
-    )));
+  const preflightActiveShopEgo = async () => {
+    const response = await fetch(`${apiBase}/runner/ego-bind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopId: activePlatform, resume: false })
+    });
+    const payload = await response.json();
+    if (payload?.shop) setPlatforms(items => items.map(item => item.id === payload.shop.id ? payload.shop : item));
+    if (!response.ok || !payload?.ok) throw new Error(payload?.message || payload?.error || 'ego_preflight_failed');
+    if (payload.requiresUserAction || !payload.shopNameMatched) {
+      throw new Error(payload.message || 'Ego Lite 登录或店铺身份校验未通过，请重新校正。');
+    }
   };
 
-  const handleRunTabbitCollection = async () => {
+  const handleRunEgoCollection = async () => {
     if (isRefreshing) return;
-    if (!canRunCollection) return;
-    const result = createCollectionRequest();
-    if (!result.ok) return;
-    try {
-      await persistNewCollectionRequest(result.request);
-    } catch (error) {
-      setLocalApiStatus('offline');
-      markCollectionRequestDispatchFailed(result.request.id, error);
+    if (!canRunCollection) {
+      setCollectionError(collectionActionLabel);
       return;
     }
-    if (result.request?.tabbitPrompt) {
-      handleCopy('task', result.request.tabbitPrompt);
-    }
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 500);
+    setCollectionError('');
+    try {
+      await preflightActiveShopEgo();
+      await persistNewCollectionRequest();
+    } catch (error) {
+      setCollectionError(syncErrorMessages[error.message] || error.message || '采集任务未创建，请检查本地接口和 Ego Lite。');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleRunFieldModalCollection = async () => {
     if (isRefreshing || !canRunFieldModalCollection) return;
-    const result = createCollectionRequest({ fieldNames: [fieldModalTask.fieldName] });
-    if (!result.ok) return;
-    try {
-      await persistNewCollectionRequest(result.request);
-    } catch (error) {
-      setLocalApiStatus('offline');
-      markCollectionRequestDispatchFailed(result.request.id, error);
-      return;
-    }
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 500);
+    setCollectionError('');
+    try {
+      await preflightActiveShopEgo();
+      await persistNewCollectionRequest({ fieldNames: [fieldModalTask.fieldName] });
+    } catch (error) {
+      setCollectionError(syncErrorMessages[error.message] || error.message || '这一列没有开始采集，请检查本地接口和 Ego Lite。');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleDragStart = (e, index) => {
@@ -1156,6 +1228,42 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
     setExtractionTasks(newTasks);
     setDraggedColIdx(null);
   };
+
+  const handleGlobalSearch = (event) => {
+    if (event.key !== 'Enter') return;
+    const keyword = globalSearch.trim().toLowerCase();
+    if (!keyword) return;
+    const matchedShop = platforms.find(shop => [shop.name, shop.expectedShopName, platformLabels[shop.platformType]].some(value => String(value || '').toLowerCase().includes(keyword)));
+    if (matchedShop) {
+      setActivePlatform(matchedShop.id);
+      setMainView('dashboard');
+      setGlobalSearchMessage(`已打开店铺：${matchedShop.name}`);
+      return;
+    }
+    for (const [shopId, rules] of Object.entries(taskRulesByPlatform)) {
+      const matchedRule = (rules || []).find(rule => rule.fieldName?.toLowerCase().includes(keyword));
+      const shop = platforms.find(item => item.id === shopId);
+      if (matchedRule && shop) {
+        setActivePlatform(shop.id);
+        setActiveTaskId(matchedRule.id);
+        setMainView('table');
+        setFieldModal({
+          open: true,
+          mode: 'edit',
+          taskId: matchedRule.id,
+          insertIndex: -1,
+          error: '',
+          form: buildFieldFormFromTask(matchedRule)
+        });
+        setGlobalSearchMessage(`已找到「${shop.name}」的字段：${matchedRule.fieldName}`);
+        return;
+      }
+    }
+    setGlobalSearchMessage(`未找到与「${globalSearch.trim()}」相关的店铺或字段`);
+  };
+
+  const attentionShops = platforms.filter(shop => shop.authStatus !== 'verified');
+  const recentFailedRuns = collectionRequests.filter(run => run.status === 'error').slice(0, 3);
 
   const pendingCollectionPrompt = buildPromptForCollectionRequest(pendingCollectionRequest);
   const agentBridgePayload = {
@@ -1193,7 +1301,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
       platformName: pendingCollectionRequest.platformName,
       expectedShopName: pendingCollectionRequest.expectedShopName,
       detectedName: pendingCollectionRequest.detectedName,
-      tabbitPrompt: pendingCollectionPrompt
+      egoPrompt: pendingCollectionPrompt
     } : null,
     latestRecord: latestRecord ? {
       id: latestRecord.id,
@@ -1202,6 +1310,11 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
       data: latestRecord.data
     } : null
   };
+
+  const tableDataWidth = 48
+    + getColumnWidth('record-id')
+    + getColumnWidth('extracted-at')
+    + extractionTasks.reduce((total, task) => total + getColumnWidth(task.id), 0);
 
   return (
     <div className="flex flex-col h-screen bg-[#F2F3F5] font-sans text-[#1D2129] overflow-hidden relative">
@@ -1221,23 +1334,52 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
         .customized-scrollbar::-webkit-scrollbar-corner { background: #FAFAFA; }
       `}</style>
 
+      {collectionError && (
+        <div role="alert" className="absolute right-5 top-16 z-[70] max-w-sm bg-red-50 border border-red-200 text-red-700 rounded shadow-lg px-4 py-3 text-[12px] flex items-start gap-3">
+          <span className="flex-1">{collectionError}</span>
+          <button onClick={() => setCollectionError('')} aria-label="关闭错误提示"><X size={14} /></button>
+        </div>
+      )}
+
       <div className="h-[52px] bg-[#2954FF] flex items-center justify-between px-5 text-white shrink-0 z-30 shadow-sm">
         <div className="flex items-center gap-8 h-full">
-          <div className="flex items-center gap-2 font-bold text-lg cursor-pointer">
+          <button onClick={() => setMainView('dashboard')} aria-label="返回 DataFactory 仪表盘" className="flex items-center gap-2 font-bold text-lg cursor-pointer">
             <Database size={20} /> DataFactory <span className="text-[13px] font-normal opacity-80 ml-1">数据工厂</span>
-          </div>
+          </button>
         </div>
         <div className="flex items-center gap-5">
           <div className="relative flex items-center bg-white/10 hover:bg-white/20 border border-white/10 transition-colors rounded px-3 py-1.5 w-64">
             <Search size={14} className="opacity-70 mr-2" />
-            <input type="text" placeholder="全局检索..." className="bg-transparent border-none outline-none text-xs text-white placeholder:text-white/60 w-full" />
+            <input value={globalSearch} onChange={(event) => { setGlobalSearch(event.target.value); setGlobalSearchMessage(''); }} onKeyDown={handleGlobalSearch} type="text" placeholder="搜店铺或字段，回车打开" className="bg-transparent border-none outline-none text-xs text-white placeholder:text-white/60 w-full" />
+            {globalSearchMessage && <div className="absolute left-0 top-[38px] z-50 w-72 bg-white border border-[#E5E6EB] rounded shadow-lg px-3 py-2 text-[12px] text-[#4E5969]">{globalSearchMessage}</div>}
           </div>
           <div className="h-4 w-px bg-white/20" />
-          <Bell size={16} className="cursor-pointer opacity-80 hover:opacity-100" />
-          <div className="flex items-center gap-2 cursor-pointer hover:bg-white/10 py-1 px-2 rounded transition-colors">
-            <div className="w-6 h-6 rounded-full bg-blue-400 border border-white/20 flex items-center justify-center text-xs font-bold shadow-sm">南</div>
-            <span className="text-[13px]">南苏</span>
-            <ChevronDown size={14} className="opacity-70" />
+          <div data-notifications-menu className="relative">
+            <button onClick={(event) => { event.stopPropagation(); setIsNotificationsOpen(open => !open); setIsAccountMenuOpen(false); }} aria-label="打开运营提醒" className="relative flex items-center justify-center w-8 h-8 rounded hover:bg-white/10">
+              <Bell size={16} className="opacity-80" />
+              {(attentionShops.length + recentFailedRuns.length) > 0 && <span className="absolute right-0.5 top-0.5 w-2 h-2 rounded-full bg-amber-400 border border-[#2954FF]" />}
+            </button>
+            {isNotificationsOpen && (
+              <div onClick={(event) => event.stopPropagation()} className="absolute right-0 top-10 z-50 w-72 bg-white border border-[#E5E6EB] rounded shadow-lg p-3 text-[#1D2129]">
+                <div className="text-[13px] font-bold">运营提醒</div>
+                <div className="mt-2 text-[12px] text-[#4E5969]">待校正店铺 {attentionShops.length} 家，近期失败任务 {recentFailedRuns.length} 条。</div>
+                {attentionShops.slice(0, 3).map(shop => <button key={shop.id} onClick={() => { setActivePlatform(shop.id); setMainView('dashboard'); setIsNotificationsOpen(false); }} className="mt-2 block w-full text-left px-2 py-1.5 rounded bg-amber-50 hover:bg-amber-100 text-[12px] text-amber-800">{shop.name}：需要校正</button>)}
+              </div>
+            )}
+          </div>
+          <div data-account-menu className="relative">
+            <button onClick={(event) => { event.stopPropagation(); setIsAccountMenuOpen(open => !open); setIsNotificationsOpen(false); }} aria-label="打开本机工作区信息" className="flex items-center gap-2 cursor-pointer hover:bg-white/10 py-1 px-2 rounded transition-colors">
+              <div className="w-6 h-6 rounded-full bg-blue-400 border border-white/20 flex items-center justify-center text-xs font-bold shadow-sm">本</div>
+              <span className="text-[13px]">本机</span>
+              <ChevronDown size={14} className="opacity-70" />
+            </button>
+            {isAccountMenuOpen && (
+              <div onClick={(event) => event.stopPropagation()} className="absolute right-0 top-10 z-50 w-72 bg-white border border-[#E5E6EB] rounded shadow-lg p-4 text-[#1D2129]">
+                <div className="text-[13px] font-bold">当前为本机工作区</div>
+                <div className="mt-1 text-[12px] text-[#86909C]">{workspaceId}</div>
+                <div className="mt-3 bg-blue-50 border border-blue-100 rounded px-3 py-2 text-[12px] text-[#4E5969]">单机模式：店铺、规则和记录只保存在这台电脑，不连接云端账号。</div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1247,37 +1389,70 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
           <div className="flex-1 overflow-y-auto py-5">
             <div className="px-5 text-xs font-medium text-[#86909C] mb-3">店铺</div>
             <div className="space-y-1 px-3">
-              {platforms.map(p => (
-                <button
+              {platforms.map(p => {
+                const latestShopRun = collectionRequests.find(request => (
+                  request.shopId === p.id || request.platformId === p.id || request.platformName === p.name
+                ));
+                const shopSyncFailed = p.authStatus === 'verified' && latestShopRun?.status === 'error';
+                const displayedShopMismatch = p.authStatus === 'mismatch'
+                  && p.detectedName
+                  && p.expectedShopName
+                  && p.detectedName !== p.expectedShopName;
+                return (
+                <div
                   key={p.id}
-                  onClick={() => {
-                    setActivePlatform(p.id);
-                    if (mainView === 'api' || mainView === 'settings') setMainView('table');
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setShopContextMenu({ shop: p, x: event.clientX, y: event.clientY });
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded transition-colors text-[13px] ${
-                    activePlatform === p.id && mainView !== 'api' && mainView !== 'settings'
-                      ? 'bg-[#F2F3F5] text-[#2954FF] font-medium'
+                  className={`flex items-center rounded transition-colors ${
+                    activePlatform === p.id && !['api', 'settings', 'trash'].includes(mainView)
+                      ? 'bg-[#F2F3F5] text-[#2954FF]'
                       : 'text-[#4E5969] hover:bg-[#F2F3F5]'
                   }`}
                 >
-                  <Store size={15} className="shrink-0" />
-                  <span className="min-w-0 flex-1 text-left">
-                    <span className="block truncate">{p.name}</span>
-                    <span className={`block truncate text-[11px] font-normal ${
-                      p.authStatus === 'verified' ? 'text-green-600' : p.authStatus === 'mismatch' ? 'text-red-500' : 'text-[#86909C]'
-                    }`}>
-                      {p.authStatus === 'verified' ? `已校准: ${p.detectedName}` : p.authStatus === 'mismatch' ? `不匹配: ${p.detectedName || '未知店铺'}` : `${platformLabels[p.platformType] || '平台'} 待校准`}
+                  <button
+                    onClick={() => {
+                      setActivePlatform(p.id);
+                      if (['api', 'settings', 'trash'].includes(mainView)) setMainView('table');
+                    }}
+                    aria-label={`打开店铺：${p.name}；右键管理店铺`}
+                    title="左键打开，右键管理店铺"
+                    className={`min-w-0 flex-1 flex items-center gap-3 px-3 py-2.5 text-[13px] ${activePlatform === p.id ? 'font-medium' : ''}`}
+                  >
+                    <Store size={15} className="shrink-0" />
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block truncate">{p.name}</span>
+                      <span className={`block truncate text-[11px] font-normal ${
+                        p.authStatus === 'mismatch' || shopSyncFailed ? 'text-red-500' : p.authStatus === 'verified' ? 'text-green-600' : 'text-[#86909C]'
+                      }`}>
+                        {displayedShopMismatch
+                          ? `店铺不匹配: ${p.detectedName}`
+                          : p.authStatus === 'mismatch'
+                            ? '校验未完成，请重新校正'
+                          : shopSyncFailed
+                            ? '同步失败，请校正'
+                            : p.authStatus === 'verified'
+                              ? `${p.detectedName} · 每天 ${p.autoSyncTime || '09:00'}`
+                              : `${platformLabels[p.platformType] || '平台'} 待校正`}
+                      </span>
                     </span>
-                  </span>
-                  {p.authStatus === 'verified' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.6)] shrink-0" />}
-                  {p.authStatus === 'mismatch' && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)] shrink-0 animate-pulse" />}
-                </button>
-              ))}
+                    {p.authStatus === 'verified' && !shopSyncFailed && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.6)] shrink-0" />}
+                    {(p.authStatus === 'mismatch' || shopSyncFailed) && <div className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)] shrink-0" />}
+                  </button>
+                </div>
+              )})}
               <button
-                onClick={openTabbitScanModal}
+                onClick={openAddShopModal}
                 className="w-full flex items-center gap-2 px-3 py-2 mt-3 rounded border border-dashed border-[#E5E6EB] text-[#86909C] hover:text-[#2954FF] hover:border-[#2954FF] hover:bg-blue-50 transition-colors text-[13px]"
               >
-                <RefreshCw size={14} /> 扫描 Tabbit 店铺
+                <Plus size={14} /> 添加店铺
+              </button>
+              <button
+                onClick={openEgoBindingModal}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded text-[#4E5969] hover:text-[#2954FF] hover:bg-blue-50 transition-colors text-[13px]"
+              >
+                <RefreshCw size={14} /> 校正当前店铺
               </button>
             </div>
 
@@ -1285,21 +1460,25 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
             <div className="space-y-1 px-3">
               <button
                 onClick={() => setMainView('api')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded transition-colors text-[13px] ${
-                  mainView === 'api' ? 'bg-[#F2F3F5] text-[#2954FF] font-medium' : 'text-[#4E5969] hover:bg-[#F2F3F5]'
-                }`}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-[13px] transition-colors ${mainView === 'api' ? 'bg-[#F2F3F5] text-[#2954FF] font-medium' : 'text-[#4E5969] hover:bg-[#F2F3F5]'}`}
               >
                 <Terminal size={15} className="shrink-0" />
-                <span className="truncate flex-1 text-left">API 接口对接</span>
+                <span className="flex-1 text-left">API 接口对接</span>
+              </button>
+              <button
+                onClick={() => setMainView('trash')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-[13px] transition-colors ${mainView === 'trash' ? 'bg-[#F2F3F5] text-[#2954FF] font-medium' : 'text-[#4E5969] hover:bg-[#F2F3F5]'}`}
+              >
+                <Trash2 size={15} className="shrink-0" />
+                <span className="flex-1 text-left">回收站</span>
+                {trashedShops.length > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-[#F2F3F5] text-[11px] flex items-center justify-center">{trashedShops.length}</span>}
               </button>
               <button
                 onClick={() => setMainView('settings')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded transition-colors text-[13px] ${
-                  mainView === 'settings' ? 'bg-[#F2F3F5] text-[#2954FF] font-medium' : 'text-[#4E5969] hover:bg-[#F2F3F5]'
-                }`}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-[13px] transition-colors ${mainView === 'settings' ? 'bg-[#F2F3F5] text-[#2954FF] font-medium' : 'text-[#4E5969] hover:bg-[#F2F3F5]'}`}
               >
                 <Settings size={15} className="shrink-0" />
-                <span className="truncate flex-1 text-left">引擎偏好设置</span>
+                <span className="flex-1 text-left">偏好设置</span>
               </button>
             </div>
           </div>
@@ -1308,7 +1487,11 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
         <div className="flex-1 flex flex-col min-w-0 relative">
           <div className="h-[48px] bg-white border-b border-[#E5E6EB] flex items-center justify-between px-6 z-10 shrink-0 shadow-sm">
             <div className="flex items-center h-full min-w-0">
-              {mainView !== 'api' && mainView !== 'settings' ? (
+              {['api', 'settings', 'trash'].includes(mainView) ? (
+                <div className="text-[14px] font-bold text-[#1D2129]">
+                  {mainView === 'api' ? 'API 接口对接' : mainView === 'trash' ? '回收站' : '偏好设置'}
+                </div>
+              ) : (
                 <div className="flex items-center h-full gap-8 shrink-0">
                   <button
                     onClick={() => setMainView('table')}
@@ -1327,15 +1510,25 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     数据采集仪表盘
                   </button>
                 </div>
-              ) : (
-                <span className="text-[14px] font-bold text-[#1D2129]">
-                  {mainView === 'api' ? '外部 AI 助手与接口开放' : '全局系统偏好设置'}
-                </span>
               )}
             </div>
           </div>
 
-          {mainView === 'table' && (
+          {!activePlatformData && ['table', 'dashboard', 'settings'].includes(mainView) && (
+            <div className="flex-1 flex items-center justify-center bg-[#F7F8FA] p-8">
+              <div className="w-full max-w-md bg-white border border-[#E5E6EB] rounded-lg p-8 text-center shadow-sm">
+                <Store size={32} className="mx-auto text-[#C9CDD4]" />
+                <h2 className="mt-4 text-[16px] font-bold text-[#1D2129]">还没有可用店铺</h2>
+                <p className="mt-2 text-[13px] leading-6 text-[#86909C]">添加一家店铺开始配置，或者去回收站恢复以前的店铺。</p>
+                <div className="mt-5 flex items-center justify-center gap-3">
+                  <button onClick={openAddShopModal} className="px-4 py-2 rounded bg-[#2954FF] text-white text-[13px] hover:bg-blue-700">添加店铺</button>
+                  {trashedShops.length > 0 && <button onClick={() => setMainView('trash')} className="px-4 py-2 rounded border border-[#E5E6EB] text-[#4E5969] text-[13px] hover:bg-[#F2F3F5]">打开回收站</button>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {mainView === 'table' && activePlatformData && (
             <div className="flex-1 flex min-h-0 bg-white">
               <div className="flex-1 flex flex-col bg-white min-h-0 min-w-0">
               <div className="px-5 py-3 border-b border-[#E5E6EB] shrink-0 overflow-x-auto overflow-y-hidden customized-scrollbar">
@@ -1352,64 +1545,33 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     {activePlatformData?.authStatus === 'verified' ? <CheckCircle2 size={12} /> : <Lock size={12} />}
                     {activePlatformData?.authStatus === 'verified' ? `店铺: ${activePlatformData.detectedName}` : '待校准'}
                   </div>
-                  <button onClick={handleCalibrateActivePlatform} className="text-[12px] text-[#4E5969] hover:text-[#2954FF] px-2 py-0.5 rounded hover:bg-blue-50 border border-[#E5E6EB] whitespace-nowrap shrink-0">
-                    校准
-                  </button>
-                  <div
-                    title={localApiStatus === 'online' ? 'Codex/Tabbit 可通过本地 API 写回采集结果。' : '本地写回 API 未连接。请用 npm run dev 或 npm run api 启动。'}
-                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] border ${
-                      localApiStatus === 'online'
-                        ? 'bg-green-50 text-green-600 border-green-100'
-                        : localApiStatus === 'offline'
-                          ? 'bg-amber-50 text-amber-600 border-amber-100'
-                          : 'bg-gray-100 text-[#86909C] border-gray-200'
-                    } whitespace-nowrap shrink-0`}
+                  <button
+                    onClick={openEgoBindingModal}
+                    title={activePlatformData?.egoBinding?.tabUrl || '尚未绑定 Ego lite 窗口'}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] border whitespace-nowrap shrink-0 ${
+                      hasEgoBinding
+                        ? 'bg-green-50 text-green-600 border-green-100 hover:bg-green-100'
+                        : 'bg-gray-100 text-[#86909C] border-gray-200 hover:bg-[#F2F3F5]'
+                    }`}
                   >
-                    {localApiStatus === 'online' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                    {localApiStatus === 'online' ? '本地写回已连接' : localApiStatus === 'offline' ? '本地写回未连接' : '检查写回服务'}
-                  </div>
-                  {pendingCollectionRequest && (
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100 whitespace-nowrap shrink-0">
-                      <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '本地执行器运行中' : '待本地执行器处理'}: {pendingCollectionRequest.id}
-                      <button
-                        onClick={copyPendingCollectionPrompt}
-                        className="ml-1 text-[#2954FF] hover:underline"
-                      >
-                        {copiedStates.task ? '已复制' : '复制指令'}
-                      </button>
-                      <button onClick={openImportResultModal} className="text-[#2954FF] hover:underline">
-                        导入结果
-                      </button>
-                      <button onClick={cancelPendingCollectionRequest} className="text-[#86909C] hover:text-red-500">
-                        取消
-                      </button>
+                    {hasEgoBinding ? <CheckCircle2 size={12} /> : <Bot size={12} />}
+                    {hasEgoBinding ? 'Ego 已绑定' : hasEgoTaskSpace ? '重新校验 Ego' : '绑定 Ego'}
+                  </button>
+                  {localApiStatus !== 'online' && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-amber-50 text-amber-600 border border-amber-100 whitespace-nowrap shrink-0">
+                      <AlertTriangle size={12} /> 服务未连接
                     </div>
                   )}
-                  {!pendingCollectionRequest && latestFailedCollectionRequest && (
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-red-50 text-red-600 border border-red-100 whitespace-nowrap shrink-0">
-                      <AlertTriangle size={12} />
-                      <span className="max-w-[260px] truncate" title={latestFailedCollectionRequest.evidence || latestFailedCollectionRequest.error || ''}>
-                        采集失败: {latestFailedCollectionRequest.id}
-                      </span>
-                      <button onClick={retryFailedCollectionRequest} className="ml-1 text-red-600 hover:underline">
-                        重试
-                      </button>
-                      <button onClick={() => copyCollectionPrompt(latestFailedCollectionRequest)} className="text-red-600 hover:underline">
-                        {copiedStates.task ? '已复制' : '复制指令'}
-                      </button>
-                      <button onClick={openImportResultModal} className="text-red-600 hover:underline">
-                        导入结果
-                      </button>
-                      <button onClick={dismissFailedCollectionRequest} className="text-[#86909C] hover:text-red-500">
-                        忽略
-                      </button>
+                  {pendingCollectionRequest && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] bg-blue-50 text-[#2954FF] border border-blue-100 whitespace-nowrap shrink-0">
+                      <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '正在采集' : '等待执行'}
                     </div>
                   )}
                   <div className="h-4 w-px bg-[#E5E6EB] shrink-0" />
                   <div className="flex items-center gap-4 border-r border-[#E5E6EB] pr-4 min-w-max shrink-0">
-                    <button className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] text-[13px] transition-colors whitespace-nowrap shrink-0">
+                    <div className="flex items-center gap-1.5 text-[#4E5969] text-[13px] whitespace-nowrap shrink-0" title="当前仅提供网格视图">
                       <TableProperties size={14} className="text-[#2954FF]" /> 网格视图
-                    </button>
+                    </div>
                     <button
                       onClick={() => setTableFilter(tableFilter === 'all' ? 'error' : 'all')}
                       className={`flex items-center gap-1.5 text-[13px] transition-colors whitespace-nowrap shrink-0 ${tableFilter === 'error' ? 'text-red-500 font-medium' : 'text-[#4E5969] hover:text-[#2954FF]'}`}
@@ -1426,7 +1588,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   </div>
                 <div className="flex items-center gap-3 min-w-max shrink-0">
                   <button
-                    onClick={() => deleteRecords(selectedVisibleRecordIds)}
+                    onClick={() => requestDeleteRecords(selectedVisibleRecordIds)}
                     disabled={selectedVisibleRecordIds.length === 0}
                     className={`flex items-center gap-1.5 text-[13px] transition-colors px-3 py-1.5 rounded whitespace-nowrap shrink-0 ${
                       selectedVisibleRecordIds.length > 0 ? 'text-red-500 hover:bg-red-50' : 'text-[#C9CDD4] cursor-not-allowed'
@@ -1435,10 +1597,10 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     <Trash2 size={14} /> 删除{selectedVisibleRecordIds.length > 0 ? ` ${selectedVisibleRecordIds.length}` : ''}
                   </button>
                   <button onClick={handleExportRecords} className="flex items-center gap-1.5 text-[#4E5969] hover:bg-[#F2F3F5] text-[13px] transition-colors px-3 py-1.5 rounded whitespace-nowrap shrink-0">
-                    <Download size={14} /> 导出
+                    <Download size={14} /> 导出当前结果
                   </button>
                   <button
-                    onClick={handleRunTabbitCollection}
+                    onClick={handleRunEgoCollection}
                     disabled={!canRunCollection}
                     className={`flex items-center gap-1.5 text-[13px] transition-colors px-4 py-1.5 rounded font-medium shadow-sm whitespace-nowrap shrink-0 ${
                       canRunCollection ? 'bg-[#2954FF] text-white hover:bg-blue-700' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
@@ -1451,8 +1613,21 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                 </div>
               </div>
 
-              <div className="flex-1 overflow-x-auto overflow-y-auto relative bg-[#FAFAFA] customized-scrollbar">
-                <table className="min-w-max w-full text-left border-collapse table-fixed bg-white">
+              <div className="flex-1 overflow-x-auto overflow-y-auto relative bg-white customized-scrollbar">
+                <div
+                  className="relative min-h-full"
+                  style={{ width: tableDataWidth + 56, minWidth: '100%' }}
+                >
+                <table
+                  style={{ width: tableDataWidth }}
+                  className="text-left border-collapse table-fixed bg-white"
+                >
+                  <colgroup>
+                    <col style={{ width: 48 }} />
+                    <col style={{ width: getColumnWidth('record-id') }} />
+                    <col style={{ width: getColumnWidth('extracted-at') }} />
+                    {extractionTasks.map(task => <col key={`width-${task.id}`} style={{ width: getColumnWidth(task.id) }} />)}
+                  </colgroup>
                   <thead className="sticky top-0 z-30 shadow-[0_1px_0_#E5E6EB]">
                     <tr>
                       <th className="w-12 border-b border-r border-[#E5E6EB] px-2 py-2 text-center bg-[#F7F8FA] sticky left-0 z-40 shadow-[1px_0_0_#E5E6EB]">
@@ -1463,59 +1638,46 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                           className="rounded border-gray-300 text-[#2954FF] focus:ring-[#2954FF] w-3.5 h-3.5 cursor-pointer"
                         />
                       </th>
-                      <th className="w-[180px] border-b border-r border-[#E5E6EB] px-4 py-2 text-[#4E5969] font-medium text-[13px] bg-[#F7F8FA] sticky left-[48px] z-40 shadow-[1px_0_0_#E5E6EB] hover:bg-[#F2F3F5] transition-colors">
+                      <th
+                        style={{ width: getColumnWidth('record-id'), minWidth: getColumnWidth('record-id') }}
+                        className="border-b border-r border-[#E5E6EB] px-4 py-2 text-[#4E5969] font-medium text-[13px] bg-[#F7F8FA] sticky left-[48px] z-40 shadow-[1px_0_0_#E5E6EB] hover:bg-[#F2F3F5] transition-colors relative"
+                      >
                         <div className="flex items-center gap-1.5"><AlignLeft size={13} className="text-[#86909C]" /> 记录 ID</div>
+                        {renderColumnResizeHandle('record-id')}
                       </th>
-                      <th className="w-[180px] border-b border-r border-[#E5E6EB] px-4 py-2 text-[#4E5969] font-medium text-[13px] bg-[#F7F8FA] hover:bg-[#F2F3F5] transition-colors">
+                      <th
+                        style={{ width: getColumnWidth('extracted-at'), minWidth: getColumnWidth('extracted-at') }}
+                        className="border-b border-r border-[#E5E6EB] px-4 py-2 text-[#4E5969] font-medium text-[13px] bg-[#F7F8FA] hover:bg-[#F2F3F5] transition-colors relative"
+                      >
                         提取时间
+                        {renderColumnResizeHandle('extracted-at')}
                       </th>
 
                       {extractionTasks.map((task, index) => (
                         <th
                           key={task.id}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, index)}
                           onDragOver={handleDragOver}
                           onDrop={(e) => handleDrop(e, index)}
-                          className={`w-[180px] border-b border-r border-[#E5E6EB] px-3 py-2 text-[#1D2129] font-medium text-[13px] bg-[#F7F8FA] group relative transition-colors ${draggedColIdx === index ? 'opacity-30 bg-blue-50' : 'hover:bg-[#E8F3FF]'}`}
+                          style={{ width: getColumnWidth(task.id), minWidth: getColumnWidth(task.id) }}
+                          className={`border-b border-r border-[#E5E6EB] px-3 py-2 text-[#1D2129] font-medium text-[13px] bg-[#F7F8FA] group relative transition-colors ${draggedColIdx === index ? 'opacity-30 bg-blue-50' : 'hover:bg-[#E8F3FF]'}`}
                         >
                           <div className="flex items-center justify-between h-full">
                             <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                              <div className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded hover:bg-[#DBE4FF] opacity-0 group-hover:opacity-100 transition-opacity text-[#86909C]">
+                              <div draggable onDragStart={(e) => handleDragStart(e, index)} className="cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded hover:bg-[#DBE4FF] opacity-0 group-hover:opacity-100 transition-opacity text-[#86909C]">
                                 <GripVertical size={13} />
                               </div>
-                              <Bot size={13} className="text-[#2954FF] shrink-0" />
                               <span className="truncate cursor-pointer hover:underline decoration-dashed" onClick={(e) => { e.stopPropagation(); openEditFieldModal(task); }}>
                                 {task.fieldName}
                               </span>
                             </div>
-                            <button onClick={(e) => { e.stopPropagation(); setOpenColMenuId(openColMenuId === task.id ? null : task.id); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#DBE4FF] text-[#4E5969] transition-opacity shrink-0">
+                            <button aria-label={`编辑${task.fieldName}字段`} onClick={(e) => { e.stopPropagation(); openEditFieldModal(task); }} className="opacity-60 group-hover:opacity-100 p-0.5 rounded hover:bg-[#DBE4FF] text-[#4E5969] transition-opacity shrink-0">
                               <ChevronDown size={14} />
                             </button>
                           </div>
-                          {openColMenuId === task.id && (
-                            <div onClick={(e) => e.stopPropagation()} className="absolute top-[34px] right-2 z-50 w-40 bg-white border border-[#E5E6EB] rounded shadow-lg py-1 text-[12px] text-[#4E5969]">
-                              <button onClick={() => { openEditFieldModal(task); setOpenColMenuId(null); }} className="w-full text-left px-3 py-2 hover:bg-[#F2F3F5]">编辑字段配置</button>
-                              <button onClick={() => { handleAddColumn(index); setOpenColMenuId(null); }} className="w-full text-left px-3 py-2 hover:bg-[#F2F3F5]">左侧插入字段</button>
-                              <button onClick={() => { handleAddColumn(index + 1); setOpenColMenuId(null); }} className="w-full text-left px-3 py-2 hover:bg-[#F2F3F5]">右侧插入字段</button>
-                              <div className="h-px bg-[#E5E6EB] my-1" />
-                              <button onClick={() => removeTask(task.id)} className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-500 flex items-center gap-1.5">
-                                <Trash2 size={12} /> 删除字段
-                              </button>
-                            </div>
-                          )}
+                          {renderColumnResizeHandle(task.id)}
                         </th>
                       ))}
 
-                      <th className="w-14 border-b border-l border-[#E5E6EB] px-2 py-2 bg-[#F7F8FA] sticky right-0 z-40 shadow-[-1px_0_0_#E5E6EB]">
-                        <button
-                          onClick={() => handleAddColumn()}
-                          title="添加字段"
-                          className="w-8 h-7 mx-auto flex items-center justify-center text-[#2954FF] rounded hover:bg-[#E8F3FF] transition-colors"
-                        >
-                          <Plus size={16} />
-                        </button>
-                      </th>
                     </tr>
                   </thead>
 
@@ -1552,14 +1714,6 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                             </td>
                           );
                         })}
-                        <td className={`border-b border-l border-[#E5E6EB] px-2 py-0 sticky right-0 z-20 shadow-[-1px_0_0_#E5E6EB] ${record.status === 'error' ? 'bg-[#FFF2F2]' : 'bg-[#FAFAFA] group-hover:bg-[#FAFAFA]'}`}>
-                          <button
-                            onClick={() => deleteRecords([record.id])}
-                            className="opacity-0 group-hover:opacity-100 text-[#86909C] hover:text-red-500 hover:bg-red-50 rounded px-2 py-1 transition-all flex items-center gap-1 text-[12px]"
-                          >
-                            <Trash2 size={12} /> 删除
-                          </button>
-                        </td>
                       </tr>
                     ))}
 
@@ -1573,25 +1727,25 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       </td>
                       <td className="border-b border-r border-[#E5E6EB] bg-white group-hover:bg-[#F2F3F5]" />
                       {extractionTasks.map(task => <td key={`add-${task.id}`} className="border-b border-r border-[#E5E6EB] bg-white group-hover:bg-[#F2F3F5]" />)}
-                      <td className="border-b border-l border-[#E5E6EB] bg-[#FAFAFA] sticky right-0 z-20 shadow-[-1px_0_0_#E5E6EB]" />
                     </tr>
 
-                    {[...Array(15)].map((_, i) => (
-                      <tr key={`empty-${i}`} className="h-[42px]">
-                        <td className="border-b border-r border-[#E5E6EB] bg-[#FAFAFA] sticky left-0 z-20 shadow-[1px_0_0_#E5E6EB]" />
-                        <td className="border-b border-r border-[#E5E6EB] bg-white sticky left-[48px] z-20 shadow-[1px_0_0_#E5E6EB]" />
-                        <td className="border-b border-r border-[#E5E6EB] bg-white" />
-                        {extractionTasks.map(task => <td key={`empty-td-${task.id}`} className="border-b border-r border-[#E5E6EB] bg-white" />)}
-                        <td className="border-b border-l border-[#E5E6EB] bg-[#FAFAFA] sticky right-0 z-20 shadow-[-1px_0_0_#E5E6EB]" />
-                      </tr>
-                    ))}
                   </tbody>
                 </table>
+                <button
+                  onClick={() => handleAddColumn()}
+                  title="添加一列"
+                  aria-label="添加一列"
+                  style={{ left: tableDataWidth }}
+                  className="absolute top-0 w-14 h-[40px] flex items-center justify-center text-[#86909C] hover:text-[#2954FF] transition-colors"
+                >
+                  <Plus size={18} strokeWidth={1.6} />
+                </button>
+                </div>
               </div>
 
               <div className="h-10 bg-white border-t border-[#E5E6EB] flex items-center justify-between px-4 shrink-0 text-xs text-[#4E5969]">
-                <div className="flex items-center gap-1.5 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded">
-                  {currentPlatformRecords.length} 条记录{selectedVisibleRecordIds.length > 0 ? `，已选 ${selectedVisibleRecordIds.length} 条` : ''} <ChevronDown size={14} />
+                <div className="flex items-center gap-1.5 px-2 py-1">
+                  {currentPlatformRecords.length} 条记录{selectedVisibleRecordIds.length > 0 ? `，已选 ${selectedVisibleRecordIds.length} 条` : ''}
                 </div>
                 {tableFilter !== 'all' && (
                   <button onClick={() => setTableFilter('all')} className="text-[#2954FF] hover:bg-blue-50 px-2 py-1 rounded">
@@ -1605,18 +1759,19 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                 <div className="w-[390px] bg-white border-l border-[#E5E6EB] flex flex-col shrink-0 shadow-xl z-20">
                   <div className="h-12 border-b border-[#E5E6EB] flex items-center justify-between px-5 bg-[#FAFAFA] shrink-0">
                     <span className="font-bold text-[#1D2129] text-[13px]">
-                      {fieldModal.mode === 'create' ? '添加字段' : '字段编辑'}
+                      {fieldModal.mode === 'create' ? '添加表格列' : '编辑表格列'}
                     </span>
                     <div className="flex items-center gap-1">
                       {fieldModal.mode === 'edit' && (
                         <button
-                          onClick={() => { removeTask(fieldModal.taskId); closeFieldModal(); }}
+                          aria-label={`删除字段${fieldModal.form.fieldName ? `：${fieldModal.form.fieldName}` : ''}`}
+                          onClick={() => requestRemoveTask(fieldModalTask)}
                           className="text-[#86909C] hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors"
                         >
                           <Trash2 size={14} />
                         </button>
                       )}
-                      <button onClick={closeFieldModal} className="text-[#86909C] hover:text-[#1D2129] p-1 hover:bg-[#F2F3F5] rounded transition-colors">
+                      <button aria-label="关闭字段编辑" onClick={closeFieldModal} className="text-[#86909C] hover:text-[#1D2129] p-1 hover:bg-[#F2F3F5] rounded transition-colors">
                         <X size={14} />
                       </button>
                     </div>
@@ -1624,13 +1779,16 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#F7F8FA] customized-scrollbar">
                     <div className="bg-white border border-[#E5E6EB] rounded p-4">
-                      <label className="block text-[12px] font-bold text-[#4E5969] mb-2">字段名称</label>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <label className="text-[12px] font-bold text-[#4E5969]">表格列名称</label>
+                        <span className="text-[11px] text-[#86909C]">保存后显示在表头</span>
+                      </div>
                       <input
                         type="text"
                         autoFocus
                         value={fieldModal.form.fieldName}
                         onChange={(e) => updateFieldModalForm({ fieldName: e.target.value })}
-                        placeholder="请输入字段标题"
+                        placeholder="例如：服务保障"
                         className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none transition-colors"
                       />
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1647,11 +1805,11 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                     </div>
 
                     <div className="bg-white border border-[#E5E6EB] rounded p-4">
-                      <label className="text-[12px] font-bold text-[#4E5969] mb-2 flex items-center gap-1.5"><MessageSquare size={13} /> 采集 Prompt</label>
+                      <label className="text-[12px] font-bold text-[#4E5969] mb-2 flex items-center gap-1.5"><MessageSquare size={13} /> 采集说明</label>
                       <textarea
                         value={fieldModal.form.prompt}
                         onChange={(e) => updateFieldModalForm({ prompt: e.target.value })}
-                        placeholder="告诉 Codex/Tabbit 到哪个页面、找哪个按钮或指标、最后只返回什么格式的数据。"
+                        placeholder="告诉 Ego lite 执行器到哪个页面、找哪个按钮或指标、最后只返回什么格式的数据。"
                         className="w-full min-h-[112px] border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[13px] leading-relaxed focus:border-[#2954FF] focus:outline-none transition-colors resize-none"
                       />
                     </div>
@@ -1659,14 +1817,6 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
 	                    <div className="bg-white border border-[#E5E6EB] rounded overflow-hidden">
 	                      <div className="px-4 py-3 border-b border-[#E5E6EB] bg-[#FAFAFA] flex items-center justify-between">
 	                        <div className="text-[12px] font-bold text-[#4E5969] flex items-center gap-1.5"><ImagePlus size={13} /> 截图标记</div>
-	                        <div className="flex items-center gap-1">
-	                          <button onClick={() => screenshotInputRef.current?.click()} className="text-[#4E5969] hover:text-[#2954FF] hover:bg-blue-50 px-2 py-1 rounded text-[12px] font-medium flex items-center gap-1">
-	                            <ImagePlus size={13} /> 上传
-	                          </button>
-	                          <button onClick={autoRecognizeFieldPath} className="text-[#2954FF] hover:bg-blue-50 px-2 py-1 rounded text-[12px] font-medium flex items-center gap-1">
-	                            <Wand2 size={13} /> 自动识别路径
-	                          </button>
-	                        </div>
 	                      </div>
 	                      <div className="p-4">
 	                        <input
@@ -1677,8 +1827,10 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
 	                          className="hidden"
 	                        />
 	                        <button
+	                          type="button"
 	                          onClick={() => screenshotInputRef.current?.click()}
-	                          className={`w-full h-[142px] border border-dashed rounded relative overflow-hidden transition-colors ${fieldModal.form.screenshotUrl || fieldModal.form.markerNote ? 'border-[#2954FF] bg-[#F0F5FF]' : 'border-[#C9CDD4] hover:border-[#2954FF] bg-white'}`}
+	                          title="点击上传图片，或直接粘贴剪贴板中的截图"
+	                          className={`w-full h-[142px] border border-dashed rounded relative overflow-hidden transition-colors focus:outline-none focus:ring-2 focus:ring-[#2954FF]/20 ${fieldModal.form.screenshotUrl || fieldModal.form.markerNote ? 'border-[#2954FF] bg-[#F0F5FF]' : 'border-[#C9CDD4] hover:border-[#2954FF] bg-white'}`}
 	                        >
 	                          {fieldModal.form.screenshotUrl ? (
 	                            <div className="absolute inset-0 bg-[#F7F8FA]">
@@ -1703,7 +1855,8 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                           ) : (
 	                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#86909C]">
 	                              <ImagePlus size={22} />
-	                              <span className="text-[12px] font-medium">上传带箭头标记的截图</span>
+	                              <span className="text-[12px] font-medium">点击上传，或直接粘贴截图</span>
+	                              <span className="text-[11px] text-[#C9CDD4]">截图后按 Ctrl+V，Mac 按 ⌘V</span>
 	                            </div>
 	                          )}
 	                        </button>
@@ -1715,64 +1868,35 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
 	                            </button>
 	                          </div>
 	                        )}
-	                        <textarea
+                        <textarea
                           value={fieldModal.form.markerNote}
                           onChange={(e) => updateFieldModalForm({ markerNote: e.target.value })}
-                          placeholder="例如：箭头指向「支付金额」卡片里的当前主数值"
+                          placeholder="补充说明（可选）：例如箭头指向「支付金额」的当前值"
                           className="mt-3 w-full min-h-[64px] border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] leading-relaxed focus:border-[#2954FF] focus:outline-none transition-colors resize-none"
                         />
                       </div>
                     </div>
-
-                    <div className="bg-white border border-[#E5E6EB] rounded p-4 space-y-3">
-                      <label className="text-[12px] font-bold text-[#4E5969] flex items-center gap-1.5"><Route size={13} /> 页面、按钮与识别路径</label>
-                      <input
-                        type="text"
-                        value={fieldModal.form.pagePath}
-                        onChange={(e) => updateFieldModalForm({ pagePath: e.target.value })}
-                        className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                        placeholder="页面路径"
-                      />
-                      <input
-                        type="text"
-                        value={fieldModal.form.clickPath}
-                        onChange={(e) => updateFieldModalForm({ clickPath: e.target.value })}
-                        className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                        placeholder="按钮路径 / 点击步骤"
-                      />
-                      <input
-                        type="text"
-                        value={fieldModal.form.recognizedPath}
-                        onChange={(e) => updateFieldModalForm({ recognizedPath: e.target.value })}
-                        className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                        placeholder="自动识别出的目标路径"
-                      />
-                      <input
-                        type="text"
-                        value={fieldModal.form.defaultValue}
-                        onChange={(e) => updateFieldModalForm({ defaultValue: e.target.value })}
-                        className="w-full border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] focus:border-[#2954FF] focus:outline-none transition-colors"
-                        placeholder="默认值 / 测试值"
-                      />
-                    </div>
                   </div>
 
                   <div className="p-4 border-t border-[#E5E6EB] bg-white shrink-0 space-y-2">
-                    <button
-                      onClick={handleRunFieldModalCollection}
-                      disabled={!canRunFieldModalCollection || isRefreshing}
-                      className={`w-full py-2.5 rounded text-[13px] font-bold shadow-sm transition-colors flex items-center justify-center gap-2 ${
-                        canRunFieldModalCollection ? 'bg-[#2954FF] hover:bg-blue-700 text-white' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
-                      }`}
-                    >
-                      <PlaySquare size={15} /> {pendingCollectionRequest ? '已有任务待本地执行器处理' : (fieldModal.mode === 'create' ? '保存后可测试' : (!hasExecutableRules ? '待授权/配置后测试' : !isLocalWritebackOnline ? '本地写回未连接' : '测试当前字段采集'))}
-                    </button>
+                    {fieldModal.error && <div className="bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">{fieldModal.error}</div>}
+                    {fieldModal.mode === 'edit' && (
+                      <button
+                        onClick={handleRunFieldModalCollection}
+                        disabled={!canRunFieldModalCollection || isRefreshing}
+                        className={`w-full py-2.5 rounded text-[13px] font-bold shadow-sm transition-colors flex items-center justify-center gap-2 ${
+                          canRunFieldModalCollection ? 'bg-[#2954FF] hover:bg-blue-700 text-white' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
+                        }`}
+                      >
+                        <PlaySquare size={15} /> {pendingCollectionRequest ? '已有采集任务' : (!hasExecutableRules ? '校准店铺后可测试' : !isLocalWritebackOnline ? '服务连接后可测试' : '测试这一列')}
+                      </button>
+                    )}
                     <button
                       onClick={handleFieldModalConfirm}
                       disabled={!fieldModal.form.fieldName.trim()}
                       className="w-full bg-[#1D2129] hover:bg-black text-white py-2.5 rounded text-[13px] font-bold shadow-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <Save size={15} /> 保存字段规则
+                      <Save size={15} /> {fieldModal.mode === 'create' ? '添加到表格' : '保存修改'}
                     </button>
                   </div>
                 </div>
@@ -1780,7 +1904,7 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
             </div>
           )}
 
-          {mainView === 'dashboard' && (
+          {mainView === 'dashboard' && activePlatformData && (
             <div className="flex-1 flex overflow-hidden">
               <div className="flex-1 flex flex-col min-w-0 bg-[#F2F3F5] p-5">
                 <div className="bg-white border border-[#E5E6EB] rounded shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
@@ -1789,67 +1913,28 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                       <div className="w-9 h-9 rounded bg-[#F0F5FF] text-[#2954FF] flex items-center justify-center shrink-0">
                         <Gauge size={18} />
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-[15px] font-bold text-[#1D2129] truncate">{activePlatformName} 采集仪表盘</div>
-                        <div className="text-[12px] text-[#86909C] mt-0.5">规则存储在字段中，由 Codex 读取后通过 Tabbit MCP 执行</div>
-                      </div>
+                      <div className="text-[15px] font-bold text-[#1D2129] truncate">{activePlatformName} 采集仪表盘</div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {activePlatformData?.authStatus === 'verified' && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-600 border border-green-200 rounded text-xs font-medium">
-                          <CheckCircle2 size={13} /> 店铺已校准: {activePlatformData.detectedName}
-                        </div>
-                      )}
-                      {activePlatformData?.authStatus === 'unauthorized' && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 border border-gray-200 rounded text-xs font-medium">
-                          <Lock size={13} /> 等待店铺校准
-                        </div>
-                      )}
-                      {activePlatformData?.authStatus === 'mismatch' && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-600 border border-red-200 rounded text-xs font-bold">
-                          <AlertTriangle size={13} /> 识别为 {activePlatformData.detectedName || '未知店铺'}，预期 {activePlatformData.expectedShopName || '未填写'}
-                        </div>
-                      )}
                       <button
-                        onClick={handleCalibrateActivePlatform}
-                        className="flex items-center gap-1.5 text-[#4E5969] hover:text-[#2954FF] hover:bg-blue-50 text-[13px] transition-colors px-3 py-1.5 rounded border border-[#E5E6EB]"
+                        onClick={openEgoBindingModal}
+                        className={`flex items-center gap-1.5 text-[13px] transition-colors px-3 py-1.5 rounded border ${
+                          hasEgoBinding
+                            ? 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'
+                            : 'text-[#4E5969] hover:text-[#2954FF] hover:bg-blue-50 border-[#E5E6EB]'
+                        }`}
                       >
-                        <RefreshCw size={13} /> 校准店铺
+                        {hasEgoBinding ? <CheckCircle2 size={13} /> : <Bot size={13} />}
+                        {hasEgoBinding ? `Ego 已绑定 · ${activePlatformData.detectedName}` : hasEgoTaskSpace ? '重新校验 Ego' : '绑定 Ego'}
                       </button>
                       {pendingCollectionRequest && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-[#2954FF] border border-blue-100 rounded text-[12px] font-medium">
-                          <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '运行中' : '待处理'}: {pendingCollectionRequest.id}
-                          <button onClick={copyPendingCollectionPrompt} className="hover:underline">
-                            {copiedStates.task ? '已复制' : '复制指令'}
-                          </button>
-                          <button onClick={openImportResultModal} className="hover:underline">
-                            导入结果
-                          </button>
-                          <button onClick={cancelPendingCollectionRequest} className="text-[#86909C] hover:text-red-500">
-                            取消
-                          </button>
-                        </div>
-                      )}
-                      {!pendingCollectionRequest && latestFailedCollectionRequest && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-600 border border-red-100 rounded text-[12px] font-medium">
-                          <AlertTriangle size={12} /> 采集失败: {latestFailedCollectionRequest.id}
-                          <button onClick={retryFailedCollectionRequest} className="hover:underline">
-                            重试
-                          </button>
-                          <button onClick={() => copyCollectionPrompt(latestFailedCollectionRequest)} className="hover:underline">
-                            {copiedStates.task ? '已复制' : '复制指令'}
-                          </button>
-                          <button onClick={openImportResultModal} className="hover:underline">
-                            导入结果
-                          </button>
-                          <button onClick={dismissFailedCollectionRequest} className="text-[#86909C] hover:text-red-500">
-                            忽略
-                          </button>
+                          <RefreshCw size={12} className="animate-spin" /> {pendingCollectionRequest.status === 'running' ? '正在采集' : '等待执行'}
                         </div>
                       )}
                       <button
-                        onClick={handleRunTabbitCollection}
+                        onClick={handleRunEgoCollection}
                         disabled={!canRunCollection}
                         className={`flex items-center gap-1.5 text-[13px] transition-colors px-4 py-1.5 rounded font-medium shadow-sm ${
                           canRunCollection ? 'bg-[#2954FF] text-white hover:bg-blue-700' : 'bg-[#C9CDD4] text-white cursor-not-allowed'
@@ -1862,27 +1947,51 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-5 customized-scrollbar bg-[#F7F8FA]">
-                    <div className="grid grid-cols-4 gap-4 mb-5">
-                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
-                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><ClipboardList size={14} /> 字段规则</div>
-                        <div className="text-[26px] font-bold text-[#1D2129]">{extractionTasks.length}</div>
-                      </div>
-                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
-                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><CheckCircle2 size={14} /> 可执行规则</div>
-                        <div className="text-[26px] font-bold text-[#1D2129]">{readyRuleCount}</div>
-                      </div>
-                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
-                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><Camera size={14} /> 标记截图</div>
-                        <div className="text-[26px] font-bold text-[#1D2129]">{extractionTasks.filter(task => task.screenshot).length}</div>
-                      </div>
-                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
-                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><RefreshCw size={14} /> 最近采集</div>
-                        <div className="text-[26px] font-bold text-[#1D2129]">{latestCollectionRequest?.time || latestRecord?.time || '-'}</div>
-                        {latestCollectionRequest && (
-                          <div className="text-[11px] text-[#86909C] mt-1 truncate">
-                            {latestCollectionRequest.status === 'waiting_for_codex' ? '待本地执行器处理' : latestCollectionRequest.status === 'running' ? '本地执行器运行中' : latestCollectionRequest.status === 'done' ? '已写回表格' : latestCollectionRequest.status === 'cancelled' ? '已取消' : '执行异常'}
+                    <div className={`mb-5 px-4 py-3 border rounded flex items-center justify-between gap-4 ${
+                      latestSyncFailed
+                        ? 'bg-red-50 border-red-100'
+                        : shopNeedsCalibration
+                          ? 'bg-amber-50 border-amber-200'
+                        : pendingCollectionRequest
+                          ? 'bg-blue-50 border-blue-100'
+                          : 'bg-white border-[#E5E6EB]'
+                    }`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <RefreshCw size={15} className={pendingCollectionRequest ? 'text-[#2954FF] animate-spin shrink-0' : latestSyncFailed ? 'text-red-500 shrink-0' : shopNeedsCalibration ? 'text-amber-600 shrink-0' : 'text-green-600 shrink-0'} />
+                        <div className="min-w-0">
+                          <div className={`text-[13px] font-medium ${latestSyncFailed ? 'text-red-600' : shopNeedsCalibration ? 'text-amber-700' : 'text-[#1D2129]'}`}>
+                            {pendingCollectionRequest
+                              ? pendingCollectionRequest.status === 'running' ? '正在同步数据' : '等待开始同步'
+                              : shopNeedsCalibration
+                                ? shopAttentionText
+                              : latestSyncFailed
+                                ? `同步失败：${latestSyncErrorText}`
+                                : latestSyncSucceeded
+                                  ? '最近一次同步成功'
+                                  : '等待首次自动同步'}
                           </div>
-                        )}
+                          <div className="text-[12px] text-[#86909C] mt-0.5">每天 {activePlatformData?.autoSyncTime || '09:00'} 自动同步</div>
+                        </div>
+                      </div>
+                      {(latestSyncFailed || shopNeedsCalibration) && (
+                        <button onClick={openEgoBindingModal} className={`shrink-0 px-3 py-1.5 text-[12px] bg-white rounded ${latestSyncFailed ? 'text-red-600 border border-red-200 hover:bg-red-50' : 'text-amber-700 border border-amber-300 hover:bg-amber-50'}`}>
+                          校正店铺
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4 mb-5">
+                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
+                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><RefreshCw size={14} /> 每日同步</div>
+                        <div className="text-[24px] font-bold text-[#1D2129]">{activePlatformData?.autoSyncTime || '09:00'}</div>
+                      </div>
+                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
+                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><CheckCircle2 size={14} /> 最近成功</div>
+                        <div className="text-[24px] font-bold text-[#1D2129]">{latestSuccessfulRecord?.time || '-'}</div>
+                      </div>
+                      <div className="bg-white border border-[#E5E6EB] rounded p-4">
+                        <div className="text-[12px] text-[#86909C] mb-2 flex items-center gap-1.5"><ClipboardList size={14} /> 页面数据时间</div>
+                        <div className="text-[16px] font-bold text-[#1D2129] truncate">{latestSuccessfulRecord?.dataUpdatedAt || '-'}</div>
                       </div>
                     </div>
 
@@ -1900,7 +2009,6 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
                             </span>
                           </div>
                           <div className="text-[24px] font-bold text-[#1D2129] truncate">{task.value || '-'}</div>
-                          <div className="text-[12px] text-[#86909C] mt-2 truncate">{task.recognizedPath || '等待截图识别路径'}</div>
                         </button>
                       ))}
                     </div>
@@ -1951,322 +2059,351 @@ data-factory get-records --shop "${activePlatformName}" --format json`;
             </div>
           )}
 
-          {(mainView === 'api' || mainView === 'settings') && (
-            <div className="flex-1 overflow-y-auto p-8 bg-[#F2F3F5] customized-scrollbar">
-              <div className="max-w-4xl mx-auto space-y-6">
-                {mainView === 'api' ? (
-                  <div className="bg-white rounded border border-[#E5E6EB] shadow-sm overflow-hidden flex flex-col min-h-[600px]">
-                    <div className="px-8 pt-8 pb-4 border-b border-[#E5E6EB] bg-[#FAFAFA]">
-                      <h2 className="text-xl font-bold text-[#1D2129] flex items-center gap-2 mb-2"><Terminal size={20} className="text-[#2954FF]" /> 开放接口与 AI 集成</h2>
-                      <p className="text-[#86909C] text-[13px]">将当前店铺中的结构化数据，无缝对接给大语言模型 (LLM) 或自动化业务流。</p>
+          {mainView === 'api' && (
+            <div className="flex-1 overflow-y-auto bg-[#F2F3F5] p-6 customized-scrollbar">
+              <div className="max-w-4xl mx-auto bg-white border border-[#E5E6EB] rounded shadow-sm overflow-hidden">
+                <div className="px-6 py-5 border-b border-[#E5E6EB] bg-[#FAFAFA] flex items-start justify-between gap-6">
+                  <div>
+                    <h2 className="text-[17px] font-bold flex items-center gap-2"><Terminal size={18} className="text-[#2954FF]" /> DataFactory API</h2>
+                    <p className="text-[12px] text-[#86909C] mt-1">Codex 可通过这组本地 JSON 接口读取店铺、校正状态、创建采集任务并查询写回结果。</p>
+                  </div>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-[12px] ${localApiStatus === 'online' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${localApiStatus === 'online' ? 'bg-green-500' : 'bg-amber-500'}`} />
+                    {localApiStatus === 'online' ? '本地接口已连接' : '本地接口未连接'}
+                  </span>
+                </div>
 
-                      <div className="flex items-center gap-6 mt-6">
-                        <button onClick={() => setApiTab('mcp')} className={`pb-3 text-[14px] font-medium border-b-[3px] transition-colors ${apiTab === 'mcp' ? 'border-[#2954FF] text-[#2954FF]' : 'border-transparent text-[#4E5969] hover:text-[#1D2129]'}`}>
-                          <div className="flex items-center gap-1.5"><Bot size={15} /> Claude / CodeX (MCP协议)</div>
-                        </button>
-                        <button onClick={() => setApiTab('cli')} className={`pb-3 text-[14px] font-medium border-b-[3px] transition-colors ${apiTab === 'cli' ? 'border-[#2954FF] text-[#2954FF]' : 'border-transparent text-[#4E5969] hover:text-[#1D2129]'}`}>
-                          <div className="flex items-center gap-1.5"><Terminal size={15} /> 终端指令 (CLI Tools)</div>
-                        </button>
-                        <button onClick={() => setApiTab('rest')} className={`pb-3 text-[14px] font-medium border-b-[3px] transition-colors ${apiTab === 'rest' ? 'border-[#2954FF] text-[#2954FF]' : 'border-transparent text-[#4E5969] hover:text-[#1D2129]'}`}>
-                          <div className="flex items-center gap-1.5"><Layers size={15} /> RESTful API</div>
+                <div className="p-6">
+                  <div className="text-[12px] font-medium text-[#4E5969] mb-2">基础地址</div>
+                  <div className="flex items-center gap-2 mb-6">
+                    <code className="flex-1 bg-[#F7F8FA] border border-[#E5E6EB] rounded px-3 py-2.5 text-[13px] text-[#1D2129]">{apiBase}</code>
+                    <button onClick={() => copyApiEndpoint('', '__base__')} aria-label="复制基础地址" title="复制基础地址" className="w-9 h-9 flex items-center justify-center border border-[#E5E6EB] rounded text-[#4E5969] hover:text-[#2954FF] hover:bg-blue-50">
+                      {copiedApiPath === '__base__' ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
+                    </button>
+                  </div>
+
+                  <div className="border border-[#E5E6EB] rounded overflow-hidden">
+                    {[
+                      { method: 'GET', path: '/health', description: '检查本地服务是否可用' },
+                      { method: 'GET', path: '/shops', description: '读取全部店铺和绑定状态' },
+                      { method: 'POST', path: '/shops', description: '添加一家待校正店铺' },
+                      { method: 'DELETE', path: `/shops/${activePlatform}`, description: '将店铺移入回收站（非永久删除）' },
+                      { method: 'GET', path: '/trash', description: '读取回收站店铺' },
+                      { method: 'POST', path: '/trash/{shopId}/restore', description: '从回收站恢复店铺并重新校正' },
+                      { method: 'GET', path: `/shops/${activePlatform}/rules`, description: '读取当前店铺的字段规则' },
+                      { method: 'POST', path: '/runner/ego-bind', description: '用 Ego Lite 校正店铺身份与窗口' },
+                      { method: 'GET', path: `/records?shopId=${activePlatform}`, description: '读取当前店铺的历史数据' },
+                      { method: 'GET', path: '/collection-runs', description: '读取采集任务和执行状态' },
+                      { method: 'GET', path: '/collection-runs/{runId}', description: '查询单次任务状态和写回记录' },
+                      { method: 'POST', path: '/collection-runs', description: '为当前店铺创建一次采集任务' }
+                    ].map((endpoint, index, endpoints) => (
+                      <div key={`${endpoint.method}-${endpoint.path}`} className={`grid grid-cols-[70px_minmax(220px,1fr)_minmax(220px,1.2fr)_40px] items-center gap-3 px-4 py-3 ${index < endpoints.length - 1 ? 'border-b border-[#E5E6EB]' : ''}`}>
+                        <span className={`w-fit px-2 py-0.5 rounded text-[11px] font-bold font-mono ${endpoint.method === 'GET' ? 'bg-green-50 text-green-700' : endpoint.method === 'DELETE' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>{endpoint.method}</span>
+                        <code className="text-[12px] text-[#1D2129] truncate">{endpoint.path}</code>
+                        <span className="text-[12px] text-[#86909C] truncate">{endpoint.description}</span>
+                        <button onClick={() => copyApiEndpoint(endpoint.path, `${endpoint.method}:${endpoint.path}`)} aria-label={`复制 ${endpoint.method} ${endpoint.path}`} title={`复制 ${endpoint.method} ${endpoint.path}`} className="w-8 h-8 flex items-center justify-center rounded text-[#86909C] hover:text-[#2954FF] hover:bg-blue-50">
+                          {copiedApiPath === `${endpoint.method}:${endpoint.path}` ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
                         </button>
                       </div>
-                    </div>
+                    ))}
+                  </div>
 
-                    <div className="p-8 flex-1">
-                      {apiTab === 'mcp' && (
-                        <div className="space-y-6 animate-in fade-in duration-300">
-                          <div className="bg-blue-50 border border-blue-100 p-4 rounded-md">
-                            <h4 className="text-[13px] font-bold text-[#1D2129] mb-1 flex items-center gap-1.5"><CheckCircle2 size={14} className="text-blue-600" /> Model Context Protocol (MCP) 支持</h4>
-                            <p className="text-[12px] text-[#4E5969] leading-relaxed">
-                              本系统原生支持 MCP 协议。你可以将其作为 Server 添加到 <strong className="text-[#1D2129]">Claude Desktop、Cursor 或 CodeX</strong> 中。AI 助手将自动理解店铺字段，并在对话中直接读取实时数据。
-                            </p>
-                          </div>
+                  <div className="mt-5 bg-blue-50 border border-blue-100 rounded px-4 py-3 text-[12px] text-[#4E5969] leading-relaxed">
+                    <div className="font-medium text-[#1D2129] mb-1">Codex 接入流程</div>
+                    先请求 <code className="text-[#2954FF]">GET /health</code> 和 <code className="text-[#2954FF]">GET /shops</code>，再用 <code className="text-[#2954FF]">{`POST /collection-runs  {"shopId":"${activePlatform}"}`}</code> 创建任务。任务会进入已校正的 Ego Lite 窗口，采集后通过本接口写回。
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
-                          <div>
-                            <div className="text-[13px] font-bold text-[#1D2129] mb-2 flex items-center justify-between">
-                              <span>1. 客户端配置文件 (<code className="bg-[#F2F3F5] px-1 py-0.5 rounded text-[#2954FF]">claude_desktop_config.json</code>)</span>
-                              <button onClick={() => handleCopy('mcp', mcpConfigSnippet)} className="text-[#86909C] hover:text-[#2954FF] flex items-center gap-1 text-[12px]">
-                                {copiedStates.mcp ? <Check size={13} className="text-green-500" /> : <Copy size={13} />} {copiedStates.mcp ? '已复制' : '复制代码'}
-                              </button>
-                            </div>
-                            <div className="bg-[#1D2129] rounded p-4 relative group overflow-hidden">
-                              <pre className="text-green-400 text-[13px] font-mono whitespace-pre-wrap leading-relaxed">
-{mcpConfigSnippet}
-                              </pre>
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="text-[13px] font-bold text-[#1D2129] mb-2">2. 可被 AI 调用的 Tools 清单</div>
-                            <div className="border border-[#E5E6EB] rounded overflow-hidden">
-                              <table className="w-full text-left text-[13px]">
-                                <thead className="bg-[#F7F8FA] border-b border-[#E5E6EB] text-[#4E5969]">
-                                  <tr><th className="px-4 py-2.5 font-medium">Tool 名称</th><th className="px-4 py-2.5 font-medium">描述</th><th className="px-4 py-2.5 font-medium">参数</th></tr>
-                                </thead>
-                                <tbody>
-                                  <tr className="border-b border-[#E5E6EB]">
-                                    <td className="px-4 py-3 font-mono text-[#2954FF]">get_shop_records</td>
-                                    <td className="px-4 py-3 text-[#1D2129]">获取指定店铺的最新结构化抓取数据</td>
-                                    <td className="px-4 py-3 font-mono text-[#86909C]">shop_id (string)</td>
-                                  </tr>
-                                  <tr>
-                                    <td className="px-4 py-3 font-mono text-[#2954FF]">trigger_extraction</td>
-                                    <td className="px-4 py-3 text-[#1D2129]">命令店铺任务立即在后台执行一次采集</td>
-                                    <td className="px-4 py-3 font-mono text-[#86909C]">shop_id (string)</td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {apiTab === 'cli' && (
-                        <div className="space-y-6 animate-in fade-in duration-300">
-                          <div>
-                            <div className="text-[13px] font-bold text-[#1D2129] mb-2 flex items-center justify-between">
-                              <span>全局安装 NPM 包</span>
-                            </div>
-                            <div className="bg-[#1D2129] rounded p-4 relative group">
-                              <pre className="text-white text-[13px] font-mono whitespace-pre-wrap">npm install -g @data-factory/cli</pre>
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="text-[13px] font-bold text-[#1D2129] mb-2 flex items-center justify-between">
-                              <span>拉取环境数据 (JSON 输出)</span>
-                              <button onClick={() => handleCopy('cli', cliSnippet)} className="text-[#86909C] hover:text-[#2954FF] flex items-center gap-1 text-[12px]">
-                                {copiedStates.cli ? <Check size={13} className="text-green-500" /> : <Copy size={13} />} {copiedStates.cli ? '已复制' : '复制代码'}
-                              </button>
-                            </div>
-                            <div className="bg-[#1D2129] rounded p-4 relative group">
-                              <pre className="text-green-400 text-[13px] font-mono whitespace-pre-wrap leading-relaxed">
-                                <span className="text-[#86909C]"># 将此指令投喂给 CodeX 等终端 Agent，它将自动解析返回的 JSON</span>{'\n'}
-                                export DATA_FACTORY_API_KEY="sk-factory-xxxxxxxx"{'\n'}
-                                data-factory get-records --shop "{activePlatformName}" --format json
-                              </pre>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {apiTab === 'rest' && (
-                        <div className="space-y-6 animate-in fade-in duration-300">
-                          <div>
-                            <div className="text-[13px] font-bold text-[#1D2129] mb-2">专属通信密钥 (Bearer Token)</div>
-                            <div className="flex gap-3">
-                              <div className="flex-1 bg-[#F7F8FA] border border-[#E5E6EB] px-3 py-2.5 text-[13px] text-[#4E5969] font-mono rounded shadow-inner">{apiKey}</div>
-                              <button onClick={() => handleCopy('key', apiKey)} className="bg-[#2954FF] hover:bg-blue-700 text-white px-5 py-2.5 text-[13px] rounded transition-colors flex items-center gap-1.5 shadow-sm">
-                                {copiedStates.key ? <Check size={14} /> : <Copy size={14} />} {copiedStates.key ? '已复制' : '复制'}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="border border-[#E5E6EB] rounded">
-                            <div className="bg-[#FAFAFA] border-b border-[#E5E6EB] px-4 py-3 flex items-center gap-3">
-                              <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[12px] font-bold font-mono">GET</span>
-                              <span className="text-[13px] font-mono text-[#1D2129]">/api/v1/sandbox/{activePlatform}/records/latest</span>
-                            </div>
-                            <div className="p-4 bg-[#1D2129]">
-                              <pre className="text-blue-300 text-[13px] font-mono whitespace-pre-wrap leading-relaxed">
-{restSnippet}
-                              </pre>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+          {mainView === 'trash' && (
+            <div className="flex-1 overflow-y-auto bg-[#F2F3F5] p-6 customized-scrollbar">
+              <div className="max-w-4xl mx-auto bg-white border border-[#E5E6EB] rounded shadow-sm overflow-hidden">
+                <div className="px-6 py-5 border-b border-[#E5E6EB] bg-[#FAFAFA]">
+                  <h2 className="text-[17px] font-bold flex items-center gap-2"><Trash2 size={18} className="text-[#2954FF]" /> 回收站</h2>
+                  <p className="text-[12px] text-[#86909C] mt-1">店铺在这里只能恢复，不提供彻底删除。历史数据和字段规则始终保留。</p>
+                </div>
+                {shopMutationError && <div className="mx-6 mt-5 bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">{shopMutationError}</div>}
+                {shopMutationSuccess && <div className="mx-6 mt-5 bg-green-50 border border-green-100 text-green-700 px-3 py-2 rounded text-[12px]">{shopMutationSuccess}</div>}
+                {trashedShops.length === 0 ? (
+                  <div className="px-6 py-16 text-center">
+                    <div className="mx-auto w-11 h-11 rounded-full bg-[#F2F3F5] flex items-center justify-center text-[#86909C]"><Trash2 size={20} /></div>
+                    <div className="mt-3 text-[14px] font-medium">回收站是空的</div>
+                    <div className="mt-1 text-[12px] text-[#86909C]">从店铺列表移除的店铺会出现在这里。</div>
                   </div>
                 ) : (
-                  <div className="bg-white rounded border border-[#E5E6EB] shadow-sm overflow-hidden p-8">
-                    <div className="mb-8 border-b border-[#E5E6EB] pb-4">
-                      <h2 className="text-lg font-bold text-[#1D2129] flex items-center gap-2"><Settings size={18} className="text-[#2954FF]" /> 偏好设置</h2>
-                      <p className="text-[#86909C] text-[13px] mt-1">调整系统底层的抓取引擎策略。</p>
-                    </div>
-                    <div className="space-y-6">
-                      <div className="flex items-center justify-between py-2">
-                        <div>
-                          <h4 className="text-[14px] font-bold text-[#1D2129]">无头静默模式</h4>
-                          <p className="text-[12px] text-[#86909C] mt-1">隐藏浏览器窗口执行采集，降低性能占用。</p>
+                  <div className="divide-y divide-[#E5E6EB]">
+                    {trashedShops.map(shop => (
+                      <div key={shop.id} className="px-6 py-4 flex items-center gap-4">
+                        <div className="w-9 h-9 rounded bg-[#F2F3F5] flex items-center justify-center text-[#86909C]"><Store size={17} /></div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[14px] font-medium truncate">{shop.name}</div>
+                          <div className="text-[12px] text-[#86909C] mt-0.5 truncate">{platformLabels[shop.platformType] || '其他平台'}{shop.expectedShopName ? ` · ${shop.expectedShopName}` : ''} · 移入后已暂停自动同步</div>
                         </div>
-                        <ToggleRight className="text-[#2954FF] cursor-pointer" size={32} />
-                      </div>
-                      <div className="border-t border-[#E5E6EB] pt-6">
-                        <label className="block text-[13px] font-bold text-[#1D2129] mb-2">OCR 识别模型选择</label>
-                        <select className="w-full border border-[#E5E6EB] bg-[#FAFAFA] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none">
-                          <option>PaddleOCR v4 (离线高速)</option>
-                          <option>Tesseract OCR</option>
-                        </select>
-                      </div>
-                      <div className="flex justify-end pt-4">
-                        <button className="px-5 py-2 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded transition-colors">
-                          保存更改
+                        <button disabled={restoringShopId === shop.id} onClick={() => handleRestoreShop(shop.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] text-[#2954FF] border border-blue-200 hover:bg-blue-50 rounded disabled:opacity-50 disabled:cursor-wait">
+                          <ArchiveRestore size={14} /> {restoringShopId === shop.id ? '正在恢复...' : '恢复店铺'}
                         </button>
                       </div>
-                    </div>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
           )}
+
+          {mainView === 'settings' && activePlatformData && (
+            <div className="flex-1 overflow-y-auto bg-[#F2F3F5] p-6 customized-scrollbar">
+              <div className="max-w-3xl mx-auto bg-white border border-[#E5E6EB] rounded shadow-sm overflow-hidden">
+                <div className="px-6 py-5 border-b border-[#E5E6EB] bg-[#FAFAFA]">
+                  <h2 className="text-[17px] font-bold flex items-center gap-2"><Settings size={18} className="text-[#2954FF]" /> {activePlatformName}</h2>
+                  <p className="text-[12px] text-[#86909C] mt-1">设置当前店铺的自动同步方式，修改后自动保存。</p>
+                </div>
+
+                <div className="px-6">
+                  <div className="py-5 flex items-center justify-between gap-6 border-b border-[#E5E6EB]">
+                    <div>
+                      <div className="text-[14px] font-medium">每日自动同步</div>
+                      <div className="text-[12px] text-[#86909C] mt-1">到达设定时间后自动刷新页面、校验店铺并写入数据。</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="每日自动同步"
+                      aria-checked={activePlatformData.autoSyncEnabled !== false}
+                      onClick={() => updateActiveShopPreference({ autoSyncEnabled: activePlatformData.autoSyncEnabled === false })}
+                      className={`relative w-10 h-6 rounded-full shrink-0 transition-colors ${activePlatformData.autoSyncEnabled !== false ? 'bg-[#2954FF]' : 'bg-[#C9CDD4]'}`}
+                    >
+                      <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${activePlatformData.autoSyncEnabled !== false ? 'left-5' : 'left-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="py-5 flex items-center justify-between gap-6 border-b border-[#E5E6EB]">
+                    <div>
+                      <div className="text-[14px] font-medium flex items-center gap-1.5"><Clock size={15} className="text-[#86909C]" /> 同步时间</div>
+                      <div className="text-[12px] text-[#86909C] mt-1">使用本机时区 Asia/Shanghai。</div>
+                    </div>
+                    <input
+                      type="time"
+                      disabled={activePlatformData.autoSyncEnabled === false}
+                      value={activePlatformData.autoSyncTime || '09:00'}
+                      onChange={(event) => updateActiveShopPreference({ autoSyncTime: event.target.value })}
+                      className="w-32 border border-[#E5E6EB] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none disabled:bg-[#F2F3F5] disabled:text-[#86909C]"
+                    />
+                  </div>
+
+                  <div className="py-5 flex items-start justify-between gap-6 border-b border-[#E5E6EB]">
+                    <div>
+                      <div className="text-[14px] font-medium flex items-center gap-1.5"><RefreshCw size={15} className="text-[#86909C]" /> 采集前刷新</div>
+                      <div className="text-[12px] text-[#86909C] mt-1">每次都重新加载后台页面，避免读取上一次的数据。</div>
+                    </div>
+                    <span className="text-[12px] text-green-600 bg-green-50 border border-green-100 rounded px-2 py-1">始终开启</span>
+                  </div>
+
+                  <div className="py-5 flex items-start justify-between gap-6">
+                    <div>
+                      <div className="text-[14px] font-medium flex items-center gap-1.5"><ShieldCheck size={15} className="text-[#86909C]" /> 店铺身份校验</div>
+                      <div className="text-[12px] text-[#86909C] mt-1">平台、域名、登录状态或店铺名不一致时禁止写入。</div>
+                    </div>
+                    <span className="text-[12px] text-green-600 bg-green-50 border border-green-100 rounded px-2 py-1">始终开启</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
 
       {isAddShopModalOpen && (
         <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded shadow-lg w-full max-w-4xl overflow-hidden">
+          <div className="bg-white rounded shadow-lg w-full max-w-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
-              <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2">
-                <RefreshCw size={16} className={`text-[#2954FF] ${isScanningTabbit ? 'animate-spin' : ''}`} />
-                扫描 Tabbit 已登录店铺
-              </h3>
-              <button
-                onClick={() => setIsAddShopModalOpen(false)}
-                aria-label="关闭扫描弹窗"
-                className="text-[#86909C] hover:text-[#1D2129] transition-colors"
-              >
-                <X size={16} />
-              </button>
+              <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2"><Store size={16} className="text-[#2954FF]" /> 添加店铺</h3>
+              <button onClick={() => setIsAddShopModalOpen(false)} aria-label="关闭添加店铺弹窗" className="text-[#86909C] hover:text-[#1D2129]"><X size={16} /></button>
             </div>
-
-            <div className="p-6 space-y-4">
-              <div className="flex items-start justify-between gap-4">
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-[13px] font-bold mb-2">平台</label>
+                <select value={newShopForm.platformType} onChange={(e) => handleNewShopPlatformChange(e.target.value)} className="w-full border border-[#E5E6EB] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none">
+                  <option value="taobao">淘宝 / 千牛</option><option value="pdd">拼多多</option><option value="jd">京东</option><option value="other">其他平台</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <div className="text-[13px] text-[#1D2129] font-medium">先在 Tabbit 浏览器登录店铺，再回到这里同步。</div>
-                  <div className="text-[12px] text-[#86909C] mt-1">
-                    DataFactory 不托管账号和 Cookie，只读取 Tabbit 已登录页面上的平台、店铺名和入口域名。
-                  </div>
+                  <label className="block text-[13px] font-bold mb-2">店铺显示名称</label>
+                  <input autoFocus value={newShopForm.name} onChange={(e) => setNewShopForm(form => ({ ...form, name: e.target.value }))} placeholder="例如：淘宝店铺 A" className="w-full border border-[#E5E6EB] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none" />
                 </div>
-                <div className={`shrink-0 px-2.5 py-1 rounded border text-[12px] ${
-                  scanSource === 'runner' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-amber-50 text-amber-600 border-amber-100'
-                }`}>
-                  {scanSource === 'runner' ? '来自本地 Runner' : '演示扫描结果'}
+                <div>
+                  <label className="block text-[13px] font-bold mb-2">实际店铺名</label>
+                  <input value={newShopForm.expectedShopName} onChange={(e) => setNewShopForm(form => ({ ...form, expectedShopName: e.target.value }))} placeholder="必须与后台显示一致" className="w-full border border-[#E5E6EB] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none" />
                 </div>
               </div>
-
-              <div className="border border-[#E5E6EB] rounded overflow-hidden">
-                <div className="grid grid-cols-[44px_1.15fr_0.75fr_1.35fr_150px_96px] bg-[#F7F8FA] border-b border-[#E5E6EB] text-[12px] font-medium text-[#4E5969]">
-                  <div className="px-3 py-2" />
-                  <div className="px-3 py-2">店铺</div>
-                  <div className="px-3 py-2">平台</div>
-                  <div className="px-3 py-2">Tabbit 页面</div>
-                  <div className="px-3 py-2">每日同步时间</div>
-                  <div className="px-3 py-2">状态</div>
-                </div>
-                <div className="divide-y divide-[#E5E6EB] max-h-[320px] overflow-y-auto customized-scrollbar">
-                  {scannedTabbitShops.map(shop => {
-                    const alreadySynced = platforms.some(platform => isSameScannedShop(platform, shop));
-                    const selected = selectedScannedShopIds.includes(shop.scanId);
-                    const scanStatus = getScannedShopStatus(shop, alreadySynced);
-                    return (
-                      <div
-                        key={shop.scanId}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => toggleScannedShopSelection(shop.scanId)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            toggleScannedShopSelection(shop.scanId);
-                          }
-                        }}
-                        className={`w-full grid grid-cols-[44px_1.15fr_0.75fr_1.35fr_150px_96px] items-center text-left text-[13px] transition-colors ${
-                          selected ? 'bg-blue-50/60' : 'bg-white hover:bg-[#F7F8FA]'
-                        }`}
-                      >
-                        <div className="px-3 py-3">
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() => toggleScannedShopSelection(shop.scanId)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="rounded border-gray-300 text-[#2954FF] focus:ring-[#2954FF] w-3.5 h-3.5 cursor-pointer"
-                          />
-                        </div>
-                        <div className="px-3 py-3 min-w-0">
-                          <div className="font-bold text-[#1D2129] truncate">{shop.displayName || shop.detectedName}</div>
-                          <div className="text-[12px] text-[#86909C] truncate">{shop.detectedName}</div>
-                        </div>
-                        <div className="px-3 py-3 text-[#4E5969]">{platformLabels[shop.platformType] || '其他'}</div>
-                        <div className="px-3 py-3 min-w-0">
-                          <div className="truncate text-[#4E5969]">{shop.tabTitle}</div>
-                          <div className="truncate text-[11px] text-[#86909C]">{shop.url}</div>
-                        </div>
-                        <div className="px-3 py-3">
-                          <input
-                            type="time"
-                            value={scannedShopSyncTimes[shop.scanId] || shop.autoSyncTime || '09:00'}
-                            onChange={(e) => updateScannedShopSyncTime(shop.scanId, e.target.value)}
-                            onInput={(e) => updateScannedShopSyncTime(shop.scanId, e.currentTarget.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-[112px] border border-[#E5E6EB] bg-white rounded px-2 py-1 text-[12px] text-[#1D2129] focus:border-[#2954FF] focus:outline-none"
-                          />
-                        </div>
-                        <div className="px-3 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded border text-[11px] ${scanStatus.className}`}>
-                            {scanStatus.label}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div>
+                <label className="block text-[13px] font-bold mb-2">后台入口</label>
+                <input value={newShopForm.url} onChange={(e) => setNewShopForm(form => ({ ...form, url: e.target.value }))} className="w-full border border-[#E5E6EB] rounded px-3 py-2 text-[13px] font-mono focus:border-[#2954FF] focus:outline-none" />
               </div>
+              <div>
+                <label className="block text-[13px] font-bold mb-2">允许域名</label>
+                <input value={newShopForm.allowedDomains} onChange={(e) => setNewShopForm(form => ({ ...form, allowedDomains: e.target.value }))} placeholder="多个域名用逗号分隔" className="w-full border border-[#E5E6EB] rounded px-3 py-2 text-[13px] font-mono focus:border-[#2954FF] focus:outline-none" />
+                <div className="text-[11px] text-[#86909C] mt-1">采集页面不在这些域名内时会自动阻断。</div>
+              </div>
+              <div>
+                <label className="block text-[13px] font-bold mb-2">每日同步时间</label>
+                <input type="time" value={newShopForm.autoSyncTime} onChange={(e) => setNewShopForm(form => ({ ...form, autoSyncTime: e.target.value }))} className="w-36 border border-[#E5E6EB] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none" />
+              </div>
+              <div className="bg-blue-50 border border-blue-100 px-3 py-2.5 rounded text-[12px] text-[#4E5969]">添加后店铺会固定保存在 DataFactory。Ego lite 登录失效或窗口离线不会删除店铺、字段和历史数据。</div>
+              {addShopError && <div className="bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">{addShopError}</div>}
             </div>
-
             <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
-              <button onClick={() => setIsAddShopModalOpen(false)} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors">取消</button>
-              <button onClick={scanTabbitShops} disabled={isScanningTabbit} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors disabled:opacity-50">
-                {isScanningTabbit ? '扫描中...' : '重新扫描'}
-              </button>
-              <button onClick={handleSyncScannedShops} disabled={selectedScannedShopIds.length === 0} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">
-                同步选中店铺
-              </button>
+              <button onClick={() => setIsAddShopModalOpen(false)} className="px-4 py-1.5 text-[13px] text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded">取消</button>
+              <button onClick={handleAddShopSubmit} disabled={isSavingShop} className="px-4 py-1.5 text-[13px] text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50">{isSavingShop ? '正在保存...' : '添加店铺'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {isImportResultModalOpen && (
+      {manualRecordModal.open && (
+        <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded shadow-lg w-full max-w-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
+              <h3 className="font-bold text-[15px] flex items-center gap-2"><Plus size={16} className="text-[#2954FF]" /> 手动增加记录</h3>
+              <button onClick={() => setManualRecordModal({ open: false, data: {}, error: '' })} aria-label="关闭手动记录弹窗" className="text-[#86909C] hover:text-[#1D2129]"><X size={16} /></button>
+            </div>
+            <div className="p-6 max-h-[60vh] overflow-y-auto customized-scrollbar">
+              <div className="text-[12px] text-[#86909C] mb-4">这条记录会标记为「手动录入」，不会冒充 Ego Lite 自动采集结果。</div>
+              <div className="grid grid-cols-2 gap-4">
+                {extractionTasks.map(task => (
+                  <label key={task.id} className="block">
+                    <span className="block text-[12px] font-medium mb-1.5">{task.fieldName}</span>
+                    <input
+                      value={manualRecordModal.data[task.fieldName] ?? ''}
+                      onChange={(event) => setManualRecordModal(modal => ({ ...modal, error: '', data: { ...modal.data, [task.fieldName]: event.target.value } }))}
+                      placeholder={`输入${task.fieldName}`}
+                      className="w-full border border-[#E5E6EB] rounded px-3 py-2 text-[13px] focus:border-[#2954FF] focus:outline-none"
+                    />
+                  </label>
+                ))}
+              </div>
+              {manualRecordModal.error && <div className="mt-4 bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">{manualRecordModal.error}</div>}
+            </div>
+            <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
+              <button onClick={() => setManualRecordModal({ open: false, data: {}, error: '' })} className="px-4 py-1.5 text-[13px] text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded">取消</button>
+              <button onClick={saveManualRecord} className="px-4 py-1.5 text-[13px] text-white bg-[#2954FF] hover:bg-blue-700 rounded">保存记录</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteAction && (
+        <div className="absolute inset-0 z-[70] bg-[#1D2129]/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded shadow-lg w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
+              <h3 className="font-bold text-[15px] flex items-center gap-2"><AlertTriangle size={16} className="text-red-500" /> 确认删除</h3>
+              <button onClick={() => setPendingDeleteAction(null)} aria-label="关闭删除确认" className="text-[#86909C] hover:text-[#1D2129]"><X size={16} /></button>
+            </div>
+            <div className="px-6 py-6 text-[13px] text-[#4E5969] leading-6">
+              {pendingDeleteAction.type === 'records'
+                ? `确定删除选中的 ${pendingDeleteAction.ids.length} 条数据记录吗？此操作不会删除店铺，但记录删除后无法恢复。`
+                : `确定删除字段「${pendingDeleteAction.label}」吗？已有历史记录中的原始数据仍会保留，但表格不再显示该字段。`}
+            </div>
+            <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
+              <button onClick={() => setPendingDeleteAction(null)} className="px-4 py-1.5 text-[13px] text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded">取消</button>
+              <button onClick={confirmDeleteAction} className="px-4 py-1.5 text-[13px] text-white bg-red-500 hover:bg-red-600 rounded">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shopContextMenu && (
+        <div
+          data-shop-context-menu
+          role="menu"
+          aria-label={`${shopContextMenu.shop.name}店铺管理`}
+          onClick={(event) => event.stopPropagation()}
+          className="fixed z-[60] w-44 bg-white border border-[#E5E6EB] rounded shadow-lg py-1"
+          style={{ left: Math.min(shopContextMenu.x, window.innerWidth - 190), top: Math.min(shopContextMenu.y, window.innerHeight - 90) }}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setShopMutationError('');
+              setShopPendingTrash(shopContextMenu.shop);
+              setShopContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50"
+          >
+            <Trash2 size={14} /> 移入回收站
+          </button>
+        </div>
+      )}
+
+      {isEgoBindingModalOpen && activePlatformData && (
         <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
           <div className="bg-white rounded shadow-lg w-full max-w-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
-              <h3 className="font-bold text-[#1D2129] text-[15px] flex items-center gap-2">
-                <Bot size={16} className="text-[#2954FF]" />
-                导入 Tabbit 采集结果
-              </h3>
-              <button onClick={() => setIsImportResultModalOpen(false)} className="text-[#86909C] hover:text-[#1D2129] transition-colors"><X size={16} /></button>
+              <h3 className="font-bold text-[15px] flex items-center gap-2"><Bot size={16} className="text-[#2954FF]" /> 校正当前店铺</h3>
+              <button onClick={() => setIsEgoBindingModalOpen(false)} aria-label="关闭 Ego 绑定弹窗" className="text-[#86909C] hover:text-[#1D2129]"><X size={16} /></button>
             </div>
-
-            <div className="p-6 space-y-4">
-              <div className="text-[13px] text-[#4E5969] leading-relaxed">
-                粘贴 Tabbit 返回的 JSON。系统会校验店铺名、允许域名和字段名，只把已配置字段写入当前店铺表格。
+            <div className="p-6 space-y-5">
+              <div className="border border-[#E5E6EB] rounded overflow-hidden">
+                <div className="px-4 py-3 bg-[#F7F8FA] border-b border-[#E5E6EB] flex items-center justify-between">
+                  <div><div className="font-bold text-[14px]">{activePlatformData.name}</div><div className="text-[12px] text-[#86909C] mt-0.5">绑定固定 Ego 窗口，防止采集到其他店铺</div></div>
+                  <span className={`px-2 py-0.5 rounded border text-[11px] ${hasEgoBinding ? 'bg-green-50 text-green-600 border-green-100' : hasEgoTaskSpace ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-gray-100 text-[#86909C] border-gray-200'}`}>{hasEgoBinding ? '已绑定并校验' : hasEgoTaskSpace ? '待登录/重新校验' : '未绑定'}</span>
+                </div>
+                <div className="grid grid-cols-[120px_1fr] text-[13px]">
+                  <div className="px-4 py-3 bg-[#FAFAFA] text-[#86909C] border-b border-r border-[#E5E6EB]">平台</div><div className="px-4 py-3 border-b border-[#E5E6EB]">{platformLabels[activePlatformData.platformType] || '其他'}</div>
+                  <div className="px-4 py-3 bg-[#FAFAFA] text-[#86909C] border-b border-r border-[#E5E6EB]">预期店铺名</div><div className="px-4 py-3 border-b border-[#E5E6EB] font-medium">{activePlatformData.expectedShopName}</div>
+                  <div className="px-4 py-3 bg-[#FAFAFA] text-[#86909C] border-b border-r border-[#E5E6EB]">Ego 识别店铺</div><div className="px-4 py-3 border-b border-[#E5E6EB] font-medium">{activePlatformData.detectedName || '尚未识别'}</div>
+                  <div className="px-4 py-3 bg-[#FAFAFA] text-[#86909C] border-b border-r border-[#E5E6EB]">最近校正</div><div className="px-4 py-3 border-b border-[#E5E6EB]">{activePlatformData.egoBinding?.verifiedAt ? new Date(activePlatformData.egoBinding.verifiedAt).toLocaleString('zh-CN', { hour12: false }) : '尚未完成'}</div>
+                  <div className="px-4 py-3 bg-[#FAFAFA] text-[#86909C] border-r border-[#E5E6EB]">每日同步</div>
+                  <div className="px-4 py-2">
+                    <input
+                      type="time"
+                      value={activePlatformData.autoSyncTime || '09:00'}
+                      onChange={(event) => setPlatforms(items => items.map(item => item.id === activePlatformData.id ? { ...item, autoSyncEnabled: true, autoSyncTime: event.target.value } : item))}
+                      className="w-32 border border-[#E5E6EB] rounded px-2 py-1 text-[12px] focus:border-[#2954FF] focus:outline-none"
+                    />
+                  </div>
+                </div>
               </div>
-              <textarea
-                autoFocus
-                value={importResultText}
-                onChange={(e) => {
-                  setImportResultText(e.target.value);
-                  setImportResultError('');
-                }}
-                placeholder='{"shopCalibration":{"expectedShopName":"南苏科技","detectedShopName":"南苏科技","status":"verified"},"currentUrl":"https://myseller.taobao.com/home.htm/QnworkbenchHome/","fields":[{"fieldName":"支付金额","value":"4,160","status":"success"}]}'
-                className="w-full min-h-[260px] border border-[#E5E6EB] bg-white rounded px-3 py-2 text-[12px] leading-relaxed font-mono focus:border-[#2954FF] focus:outline-none transition-colors resize-none"
-              />
-              {importResultError && (
-                <div className="bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">
-                  {importResultError}
+              <div className="bg-blue-50 border border-blue-100 px-4 py-3 rounded text-[12px] text-[#4E5969] leading-relaxed">系统会检查平台、登录状态和店铺名。发现登录失效或店铺不一致时会停止采集，不会写入错误数据。</div>
+              {hasEgoBinding && !scanError && (
+                <div className="bg-green-50 border border-green-100 px-4 py-3 rounded text-[12px] text-green-700 leading-relaxed flex items-start gap-2">
+                  <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+                  <span>校正通过：DataFactory 的「{activePlatformData.expectedShopName}」与 Ego Lite 当前店铺一致，平台和域名校验已通过。</span>
                 </div>
               )}
+              {scanError && <div className="bg-amber-50 border border-amber-100 text-amber-700 px-3 py-2 rounded text-[12px] flex items-center justify-between gap-4"><span>{scanError}</span>{egoResumeRequired && <button onClick={() => bindActiveShopToEgo({ resume: true })} disabled={isBindingEgo} className="shrink-0 px-3 py-1.5 bg-[#2954FF] text-white rounded disabled:opacity-50">{isBindingEgo ? '正在校验...' : '我已登录，重新校验'}</button>}</div>}
             </div>
-
             <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
-              <button onClick={() => setIsImportResultModalOpen(false)} className="px-4 py-1.5 text-[13px] font-medium text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded transition-colors">取消</button>
-              <button onClick={handleImportCollectionResult} disabled={!importResultText.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50 transition-colors">写入表格</button>
+              <button onClick={() => setIsEgoBindingModalOpen(false)} className="px-4 py-1.5 text-[13px] text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded">关闭</button>
+              <button onClick={() => bindActiveShopToEgo()} disabled={isBindingEgo} className="px-4 py-1.5 text-[13px] text-white bg-[#2954FF] hover:bg-blue-700 rounded disabled:opacity-50">{isBindingEgo ? '正在校正...' : hasEgoTaskSpace ? '重新校正' : '绑定并校正'}</button>
             </div>
           </div>
         </div>
       )}
+
+      {shopPendingTrash && (
+        <div className="absolute inset-0 z-50 bg-[#1D2129]/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded shadow-lg w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#E5E6EB] flex justify-between items-center bg-[#FAFAFA]">
+              <h3 className="font-bold text-[15px] flex items-center gap-2"><Trash2 size={16} className="text-amber-600" /> 移入回收站</h3>
+              <button onClick={() => setShopPendingTrash(null)} aria-label="关闭弹窗" className="text-[#86909C] hover:text-[#1D2129]"><X size={16} /></button>
+            </div>
+            <div className="p-6">
+              <div className="text-[14px] text-[#1D2129]">确定将「{shopPendingTrash.name}」移入回收站吗？</div>
+              <div className="mt-3 bg-amber-50 border border-amber-100 px-3 py-2.5 rounded text-[12px] text-amber-800 leading-relaxed">自动同步会立即暂停，未完成的采集任务会取消。字段规则和历史数据不会删除，以后可以从回收站恢复。</div>
+              {shopMutationError && <div className="mt-3 bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded text-[12px]">{shopMutationError}</div>}
+            </div>
+            <div className="px-6 py-4 bg-[#FAFAFA] border-t border-[#E5E6EB] flex justify-end gap-3">
+              <button onClick={() => setShopPendingTrash(null)} className="px-4 py-1.5 text-[13px] text-[#4E5969] border border-[#E5E6EB] bg-white hover:bg-[#F2F3F5] rounded">取消</button>
+              <button onClick={handleMoveShopToTrash} className="px-4 py-1.5 text-[13px] text-white bg-amber-600 hover:bg-amber-700 rounded">移入回收站</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

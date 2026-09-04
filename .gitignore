@@ -11,3 +11,4 @@ yarn-error.log*
 
 .vercel
 .env*.local
+data-factory-state.json
